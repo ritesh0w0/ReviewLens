@@ -1,6 +1,16 @@
 import express, { type Express } from "express";
+import pino from "pino";
+import { z } from "zod";
+import { verifyWebhookSignature } from "./github/verify-webhook-signature.js";
 
-export function createApp(): Express {
+type AppOptions = {
+  webhookSecret?: string;
+};
+
+const webhookPayloadSchema = z.record(z.string(), z.unknown());
+const logger = pino();
+
+export function createApp(options: AppOptions = {}): Express {
   const app = express();
 
   app.get("/healthz", (_req, res) => {
@@ -9,6 +19,77 @@ export function createApp(): Express {
       service: "reviewlens-api",
     });
   });
+
+  app.post(
+    "/webhooks/github",
+    express.raw({
+      type: "application/json",
+      limit: "1mb",
+    }),
+    (req, res) => {
+      if (!options.webhookSecret) {
+        return res.status(503).json({
+          error: "Webhook secret is not configured",
+        });
+      }
+
+      if (!Buffer.isBuffer(req.body)) {
+        return res.status(400).json({
+          error: "Expected a raw JSON request body",
+        });
+      }
+
+      const signature = req.header("x-hub-signature-256");
+
+      const validSignature = verifyWebhookSignature(
+        req.body,
+        signature,
+        options.webhookSecret,
+      );
+
+      if (!validSignature) {
+        return res.status(401).json({
+          error: "Invalid webhook signature",
+        });
+      }
+
+      const event = req.header("x-github-event");
+      const deliveryId = req.header("x-github-delivery");
+
+      if (!event || !deliveryId) {
+        return res.status(400).json({
+          error: "Missing GitHub event headers",
+        });
+      }
+
+      let payload: unknown;
+
+      try {
+        payload = JSON.parse(req.body.toString("utf8"));
+      } catch {
+        return res.status(400).json({
+          error: "Malformed JSON payload",
+        });
+      }
+
+      const parsedPayload = webhookPayloadSchema.safeParse(payload);
+
+      if (!parsedPayload.success) {
+        return res.status(400).json({
+          error: "Expected a JSON object payload",
+        });
+      }
+
+      logger.info({ event, deliveryId }, "Verified GitHub webhook signature");
+
+      return res.status(200).json({
+        received: true,
+        event,
+        deliveryId,
+        note: "Signature verified; review processing is not wired up yet.",
+      });
+    },
+  );
 
   return app;
 }
