@@ -1,17 +1,21 @@
 import express, { type Express } from "express";
 import pino from "pino";
-import { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
+import { genericWebhookPayloadSchema } from "./github/webhook-schemas.js";
 import { verifyWebhookSignature } from "./github/verify-webhook-signature.js";
+import { processWebhookPayload } from "./services/webhook-service.js";
+import { getPrismaClient } from "./db/client.js";
 
-type AppOptions = {
+export type AppOptions = {
   webhookSecret?: string;
+  prisma?: PrismaClient;
 };
 
-const webhookPayloadSchema = z.record(z.string(), z.unknown());
 const logger = pino();
 
 export function createApp(options: AppOptions = {}): Express {
   const app = express();
+  const prisma = options.prisma ?? getPrismaClient();
 
   app.get("/healthz", (_req, res) => {
     res.status(200).json({
@@ -26,7 +30,7 @@ export function createApp(options: AppOptions = {}): Express {
       type: "application/json",
       limit: "1mb",
     }),
-    (req, res) => {
+    async (req, res) => {
       if (!options.webhookSecret) {
         return res.status(503).json({
           error: "Webhook secret is not configured",
@@ -72,7 +76,7 @@ export function createApp(options: AppOptions = {}): Express {
         });
       }
 
-      const parsedPayload = webhookPayloadSchema.safeParse(payload);
+      const parsedPayload = genericWebhookPayloadSchema.safeParse(payload);
 
       if (!parsedPayload.success) {
         return res.status(400).json({
@@ -82,12 +86,29 @@ export function createApp(options: AppOptions = {}): Express {
 
       logger.info({ event, deliveryId }, "Verified GitHub webhook signature");
 
-      return res.status(200).json({
-        received: true,
-        event,
-        deliveryId,
-        note: "Signature verified; review processing is not wired up yet.",
-      });
+      try {
+        const result = await processWebhookPayload(
+          prisma,
+          deliveryId,
+          event,
+          parsedPayload.data,
+        );
+
+        return res.status(result.status).json(result.body);
+      } catch (err) {
+        logger.error(
+          {
+            event,
+            deliveryId,
+            err: err instanceof Error ? err.message : "Database error",
+          },
+          "Database operation failed during webhook processing",
+        );
+
+        return res.status(503).json({
+          error: "Database service unavailable",
+        });
+      }
     },
   );
 

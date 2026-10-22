@@ -195,7 +195,7 @@ All MUST items accepted, the evaluation report committed, the app deployed and s
 GitHub --signed webhook--> API (Express)
                              1. verify HMAC on the raw body
                              2. insert delivery (unique ID)
-                             3. insert run (unique repo + PR + head SHA)
+                             3. insert run (unique repo + PR + head SHA + base SHA)
                              4. enqueue job
                                  |
                                  v
@@ -284,7 +284,7 @@ Rule: most unit tests live in packages/core because it is pure. Anything that do
 | --- | --- | --- | --- |
 | P0 Receive | API | Read the raw body. Verify X-Hub-Signature-256 (HMAC-SHA256 with the webhook secret) using a constant-time compare. Only then parse JSON with Zod. Read X-GitHub-Event and X-GitHub-Delivery. | Bad signature: 401, store nothing. Malformed body: 400. |
 | P1 Filter | API | Ignore everything except pull\_request opened, reopened, synchronize, ready\_for\_review. Skip drafts, configured bot authors and disabled repos. | Ignored deliveries are recorded as ignored and return 200. |
-| P2 Record | API | Insert the delivery row (primary key is the delivery ID). Insert the run row (unique on repo, PR, head SHA). Mark older queued or running runs for this PR as superseded. Enqueue the job with the run ID. | Delivery exists and was enqueued: return 200 and do nothing. Exists but never enqueued: enqueue now. Database unavailable: return 503 so the delivery shows as failed and can be redelivered. |
+| P2 Record | API | Insert the delivery row (primary key is the delivery ID). Insert the run row (unique on repo, PR, head SHA, base SHA). Mark older queued or running runs for this PR as superseded. Enqueue the job with the run ID. | Delivery exists and was enqueued: return 200 and do nothing. Exists but never enqueued: enqueue now. Database unavailable: return 503 so the delivery shows as failed and can be redelivered. |
 | P3 Start | Worker | Mark the run running. Stop if it is already superseded or finished. Check the installation's daily token cap. | Cap reached: continue in degraded mode (rules only). |
 | P4 Authenticate | Worker | Get an installation token. | 401 or 403: fail the run and flag the installation. Transient error: retry. |
 | P5 Fetch | Worker | PR metadata (title, body, base ref, head SHA, author), the list of changed files with patches (paginated), and the config file from the base ref. | Config 404: use defaults. Missing patch (large or binary file): skip the file and note it. 429 or 5xx: retry with backoff, honoring retry-after. |
@@ -310,7 +310,7 @@ A bold severity and category tag, one or two sentences, the evidence quoted, and
 
 ### 8.4 Concurrency and idempotency rules
 
-- Idempotency keys: delivery ID (webhook), repo plus PR plus head SHA (run), fingerprint (finding), hidden marker (posted review).
+- Idempotency keys: delivery ID (webhook), repo plus PR plus head SHA plus base SHA (run), fingerprint (finding), hidden marker (posted review).
 - Runs for different PRs may execute in parallel. Runs for the same PR must not post at the same time (use a queue group or singleton key, or a Postgres advisory lock keyed by PR).
 - Supersession is cooperative: the worker checks run status between steps.
 - Every retry must be safe to repeat. If a step cannot be made safe to repeat, it needs a check before it acts (as P10 does for posting).
@@ -323,8 +323,8 @@ A bold severity and category tag, one or two sentences, the evidence quoted, and
 | repositories | id, installation\_id (FK), github\_repo\_id (bigint, unique), full\_name, default\_branch, enabled (bool), created\_at |
 | users | id, github\_user\_id (bigint, unique), login, created\_at |
 | user\_installations | user\_id (FK), installation\_id (FK), refreshed\_at; PK (user\_id, installation\_id) |
-| webhook\_deliveries | delivery\_id (text PK), event, action, installation\_github\_id, status (received, enqueued, ignored, failed), error, received\_at |
-| review\_runs | id, installation\_id, repository\_id, pr\_number, head\_sha, base\_sha, status (queued, running, succeeded, degraded, failed, superseded, skipped), degraded\_reason, failure\_reason, trigger (webhook, manual, sweeper), config\_hash, files\_total, files\_reviewed, candidate\_count, posted\_count, tokens\_in, tokens\_out, est\_cost\_usd (numeric), github\_review\_id, created\_at, started\_at, finished\_at; UNIQUE (repository\_id, pr\_number, head\_sha) |
+| webhook\_deliveries | delivery\_id (text PK), event, action, installation\_github\_id, status (received, enqueued, ignored, failed), error, attempt\_count, last\_attempt\_at, received\_at, updated\_at, review\_run\_id (FK) |
+| review\_runs | id, repository\_id, pr\_number, head\_sha, base\_sha (required), status (queued, running, succeeded, degraded, failed, superseded, skipped), degraded\_reason, failure\_reason, trigger (webhook, manual, sweeper), config\_hash, files\_total, files\_reviewed, candidate\_count, posted\_count, tokens\_in, tokens\_out, est\_cost\_usd (numeric 12,8), github\_review\_id, created\_at, started\_at, finished\_at; UNIQUE (repository\_id, pr\_number, head\_sha, base\_sha) |
 | findings | id, run\_id (FK), source (rule, model), rule\_id\_or\_category, severity (low, medium, high), confidence (nullable numeric), path, line, message, evidence, fingerprint, status (posted, dropped, suppressed\_duplicate), drop\_reason, github\_comment\_id, feedback (null, useful, not\_useful), created\_at; INDEX (run\_id), INDEX (fingerprint) |
 | llm\_calls | id, run\_id, chunk\_index, attempt, provider, model, prompt\_version, input\_tokens, output\_tokens, latency\_ms, status (ok, timeout, rate\_limited, invalid\_output, error), created\_at |
 

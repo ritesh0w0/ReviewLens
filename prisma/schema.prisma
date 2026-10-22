@@ -1,0 +1,128 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum InstallationStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+
+  @@map("installation_status")
+}
+
+enum DeliveryStatus {
+  RECEIVED
+  ENQUEUED
+  IGNORED
+  FAILED
+
+  @@map("delivery_status")
+}
+
+enum ReviewStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  DEGRADED
+  FAILED
+  SUPERSEDED
+  SKIPPED
+
+  @@map("review_status")
+}
+
+enum ReviewTrigger {
+  WEBHOOK
+  MANUAL
+  SWEEPER
+
+  @@map("review_trigger")
+}
+
+model Installation {
+  id                   String             @id @default(uuid()) @db.Uuid
+  githubInstallationId BigInt             @unique @map("github_installation_id")
+  accountLogin         String             @map("account_login")
+  accountType          String             @map("account_type")
+  status               InstallationStatus @default(ACTIVE)
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  repositories         Repository[]
+
+  @@map("installations")
+}
+
+model Repository {
+  id             String       @id @default(uuid()) @db.Uuid
+  installationId String       @map("installation_id") @db.Uuid
+  githubRepoId   BigInt       @unique @map("github_repo_id")
+  fullName       String       @map("full_name")
+  defaultBranch  String?      @map("default_branch")
+  enabled        Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  installation   Installation @relation(fields: [installationId], references: [id], onDelete: Restrict)
+  reviewRuns     ReviewRun[]
+
+  @@index([installationId])
+  @@map("repositories")
+}
+
+model WebhookDelivery {
+  deliveryId           String         @id @map("delivery_id")
+  event                String
+  action               String?
+  installationGithubId BigInt?        @map("installation_github_id")
+  status               DeliveryStatus
+  error                String?
+  attemptCount         Int            @default(0) @map("attempt_count")
+  lastAttemptAt        DateTime?      @map("last_attempt_at") @db.Timestamptz(3)
+  receivedAt           DateTime       @default(now()) @map("received_at") @db.Timestamptz(3)
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  reviewRunId          String?        @map("review_run_id") @db.Uuid
+
+  reviewRun            ReviewRun?     @relation(fields: [reviewRunId], references: [id], onDelete: SetNull)
+
+  @@index([status, receivedAt])
+  @@index([reviewRunId])
+  @@map("webhook_deliveries")
+}
+
+model ReviewRun {
+  id             String            @id @default(uuid()) @db.Uuid
+  repositoryId   String            @map("repository_id") @db.Uuid
+  prNumber       Int               @map("pr_number")
+  headSha        String            @map("head_sha")
+  baseSha        String            @map("base_sha")
+  status         ReviewStatus      @default(QUEUED)
+  degradedReason String?           @map("degraded_reason")
+  failureReason  String?           @map("failure_reason")
+  trigger        ReviewTrigger     @default(WEBHOOK)
+  configHash     String?           @map("config_hash")
+  filesTotal     Int?              @map("files_total")
+  filesReviewed  Int?              @map("files_reviewed")
+  candidateCount Int?              @map("candidate_count")
+  postedCount    Int?              @map("posted_count")
+  tokensIn       Int?              @map("tokens_in")
+  tokensOut      Int?              @map("tokens_out")
+  estCostUsd     Decimal?          @map("est_cost_usd") @db.Decimal(12, 8)
+  githubReviewId BigInt?           @map("github_review_id")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt      DateTime?         @map("started_at") @db.Timestamptz(3)
+  finishedAt     DateTime?         @map("finished_at") @db.Timestamptz(3)
+
+  repository     Repository        @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  deliveries     WebhookDelivery[]
+
+  @@unique([repositoryId, prNumber, headSha, baseSha])
+  @@index([repositoryId, createdAt])
+  @@map("review_runs")
+}
