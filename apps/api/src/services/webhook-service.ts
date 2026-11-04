@@ -54,12 +54,78 @@ export async function processWebhookPayload(
   event: string,
   rawPayload: Record<string, unknown>,
 ): Promise<WebhookProcessResult> {
+  const maxConcurrencyRetries = 5;
+  let attempt = 0;
+
+  while (attempt <= maxConcurrencyRetries) {
+    try {
+      return await executeWebhookProcessing(
+        prisma,
+        deliveryId,
+        event,
+        rawPayload,
+      );
+    } catch (err) {
+      const isKnownPrisma = err instanceof Prisma.PrismaClientKnownRequestError;
+      const isRetryable =
+        isKnownPrisma && (err.code === "P2002" || err.code === "P2034");
+
+      if (isRetryable && attempt < maxConcurrencyRetries) {
+        attempt++;
+        const delay = Math.floor(Math.random() * 30) + attempt * 25;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      if (isRetryable) {
+        const recorded = await prisma.webhookDelivery.findUnique({
+          where: { deliveryId },
+        });
+        if (recorded) {
+          return {
+            status: 200,
+            body: {
+              received: true,
+              deliveryId,
+              duplicate: true,
+              message: "Delivery or run already processed",
+            },
+          };
+        }
+      }
+
+      throw err;
+    }
+  }
+
+  throw new Error("Unreachable concurrency state");
+}
+
+async function executeWebhookProcessing(
+  prisma: PrismaClient,
+  deliveryId: string,
+  event: string,
+  rawPayload: Record<string, unknown>,
+): Promise<WebhookProcessResult> {
   // Pre-check: has this delivery ID already reached a terminal / completed state?
   const existingDelivery = await prisma.webhookDelivery.findUnique({
     where: { deliveryId },
   });
 
   if (existingDelivery) {
+    // 0. ATTACHED: Work has already been linked to a run. Safe to acknowledge duplicate.
+    if (existingDelivery.reviewRunId) {
+      return {
+        status: 200,
+        body: {
+          received: true,
+          deliveryId,
+          duplicate: true,
+          message: "Delivery already processed",
+        },
+      };
+    }
+
     // 1. ENQUEUED: Work has been accepted by the background queue. Safe to acknowledge duplicate.
     if (existingDelivery.status === DeliveryStatus.ENQUEUED) {
       return {
@@ -288,79 +354,44 @@ export async function processWebhookPayload(
     };
   }
 
-  try {
-    return await prisma.$transaction(async (tx) => {
-      const installationGithubId = payload.installation
-        ? BigInt(payload.installation.id)
-        : BigInt(payload.repository.id);
+  return await prisma.$transaction(async (tx) => {
+    const installationGithubId = payload.installation
+      ? BigInt(payload.installation.id)
+      : BigInt(payload.repository.id);
 
-      const accountLogin =
-        payload.installation?.account?.login ??
-        payload.repository.owner?.login ??
-        "unknown";
-      const accountType = payload.installation?.account?.type ?? "Organization";
+    const accountLogin =
+      payload.installation?.account?.login ??
+      payload.repository.owner?.login ??
+      "unknown";
+    const accountType = payload.installation?.account?.type ?? "Organization";
 
-      const installation = await tx.installation.upsert({
-        where: { githubInstallationId: installationGithubId },
-        create: {
-          githubInstallationId: installationGithubId,
-          accountLogin,
-          accountType,
-          status: InstallationStatus.ACTIVE,
-        },
-        update: {},
-      });
+    const installation = await tx.installation.upsert({
+      where: { githubInstallationId: installationGithubId },
+      create: {
+        githubInstallationId: installationGithubId,
+        accountLogin,
+        accountType,
+        status: InstallationStatus.ACTIVE,
+      },
+      update: {},
+    });
 
-      const githubRepoId = BigInt(payload.repository.id);
-      const repository = await tx.repository.upsert({
-        where: { githubRepoId },
-        create: {
-          installationId: installation.id,
-          githubRepoId,
-          fullName: payload.repository.full_name,
-          defaultBranch: payload.repository.default_branch ?? null,
-          enabled: true,
-        },
-        update: {
-          fullName: payload.repository.full_name,
-        },
-      });
+    const githubRepoId = BigInt(payload.repository.id);
+    const repository = await tx.repository.upsert({
+      where: { githubRepoId },
+      create: {
+        installationId: installation.id,
+        githubRepoId,
+        fullName: payload.repository.full_name,
+        defaultBranch: payload.repository.default_branch ?? null,
+        enabled: true,
+      },
+      update: {
+        fullName: payload.repository.full_name,
+      },
+    });
 
-      if (!repository.enabled) {
-        await tx.webhookDelivery.upsert({
-          where: { deliveryId },
-          create: {
-            deliveryId,
-            event,
-            action: payload.action,
-            installationGithubId,
-            status: DeliveryStatus.IGNORED,
-            error: "Repository is disabled",
-            attemptCount: 1,
-            lastAttemptAt: new Date(),
-          },
-          update: {
-            status: DeliveryStatus.IGNORED,
-            error: "Repository is disabled",
-            attemptCount: existingDelivery
-              ? existingDelivery.attemptCount + 1
-              : 1,
-            lastAttemptAt: new Date(),
-          },
-        });
-
-        return {
-          status: 200,
-          body: {
-            received: true,
-            deliveryId,
-            ignored: true,
-            reason: "Repository is disabled",
-          },
-        };
-      }
-
-      // Record delivery state
+    if (!repository.enabled) {
       await tx.webhookDelivery.upsert({
         where: { deliveryId },
         create: {
@@ -368,13 +399,14 @@ export async function processWebhookPayload(
           event,
           action: payload.action,
           installationGithubId,
-          status: DeliveryStatus.RECEIVED,
+          status: DeliveryStatus.IGNORED,
+          error: "Repository is disabled",
           attemptCount: 1,
           lastAttemptAt: new Date(),
         },
         update: {
-          status: DeliveryStatus.RECEIVED,
-          error: null,
+          status: DeliveryStatus.IGNORED,
+          error: "Repository is disabled",
           attemptCount: existingDelivery
             ? existingDelivery.attemptCount + 1
             : 1,
@@ -382,134 +414,93 @@ export async function processWebhookPayload(
         },
       });
 
-      const baseSha = payload.pull_request.base.sha;
-
-      // Check if a review run already exists for this repository, PR number, head SHA, and base SHA
-      const existingRun = await tx.reviewRun.findUnique({
-        where: {
-          repositoryId_prNumber_headSha_baseSha: {
-            repositoryId: repository.id,
-            prNumber: payload.number,
-            headSha: payload.pull_request.head.sha,
-            baseSha,
-          },
+      return {
+        status: 200,
+        body: {
+          received: true,
+          deliveryId,
+          ignored: true,
+          reason: "Repository is disabled",
         },
+      };
+    }
+
+    // Record delivery state
+    await tx.webhookDelivery.upsert({
+      where: { deliveryId },
+      create: {
+        deliveryId,
+        event,
+        action: payload.action,
+        installationGithubId,
+        status: DeliveryStatus.RECEIVED,
+        attemptCount: 1,
+        lastAttemptAt: new Date(),
+      },
+      update: {
+        status: DeliveryStatus.RECEIVED,
+        error: null,
+        attemptCount: existingDelivery ? existingDelivery.attemptCount + 1 : 1,
+        lastAttemptAt: new Date(),
+      },
+    });
+
+    const baseSha = payload.pull_request.base.sha;
+
+    // Check if a review run already exists for this repository, PR number, head SHA, and base SHA
+    const existingRun = await tx.reviewRun.findUnique({
+      where: {
+        repositoryId_prNumber_headSha_baseSha: {
+          repositoryId: repository.id,
+          prNumber: payload.number,
+          headSha: payload.pull_request.head.sha,
+          baseSha,
+        },
+      },
+    });
+
+    if (existingRun) {
+      await tx.webhookDelivery.update({
+        where: { deliveryId },
+        data: { reviewRunId: existingRun.id },
       });
 
-      if (existingRun) {
-        await tx.webhookDelivery.update({
-          where: { deliveryId },
-          data: { reviewRunId: existingRun.id },
-        });
-
-        return {
-          status: 200,
-          body: {
-            received: true,
-            deliveryId,
-            duplicate: true,
-            message: "Review run already exists for this commit",
-          },
-        };
-      }
-
-      // Create new review run
-      try {
-        const run = await tx.reviewRun.create({
-          data: {
-            repositoryId: repository.id,
-            prNumber: payload.number,
-            headSha: payload.pull_request.head.sha,
-            baseSha,
-            status: ReviewStatus.QUEUED,
-            trigger: ReviewTrigger.WEBHOOK,
-          },
-        });
-
-        await tx.webhookDelivery.update({
-          where: { deliveryId },
-          data: { reviewRunId: run.id },
-        });
-
-        return {
-          status: 202,
-          body: {
-            received: true,
-            deliveryId,
-            runId: run.id,
-            status: "queued",
-          },
-        };
-      } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === "P2002"
-        ) {
-          const target = err.meta?.target;
-          const isReviewRunKey = Array.isArray(target)
-            ? target.includes("repository_id") || target.includes("head_sha")
-            : typeof target === "string"
-              ? target.includes("review_runs")
-              : err.message.includes("review_runs");
-
-          if (isReviewRunKey) {
-            const concurrentRun = await tx.reviewRun.findUnique({
-              where: {
-                repositoryId_prNumber_headSha_baseSha: {
-                  repositoryId: repository.id,
-                  prNumber: payload.number,
-                  headSha: payload.pull_request.head.sha,
-                  baseSha,
-                },
-              },
-            });
-
-            if (concurrentRun) {
-              await tx.webhookDelivery.update({
-                where: { deliveryId },
-                data: { reviewRunId: concurrentRun.id },
-              });
-            }
-
-            return {
-              status: 200,
-              body: {
-                received: true,
-                deliveryId,
-                duplicate: true,
-                message: "Review run already exists for this commit",
-              },
-            };
-          }
-        }
-        throw err;
-      }
-    });
-  } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      const target = err.meta?.target;
-      const isDeliveryOrRunKey = Array.isArray(target)
-        ? target.includes("delivery_id") || target.includes("repository_id")
-        : typeof target === "string"
-          ? target.includes("delivery") || target.includes("review_runs")
-          : err.message.includes("delivery") ||
-            err.message.includes("review_runs");
-
-      if (isDeliveryOrRunKey) {
-        return {
-          status: 200,
-          body: {
-            received: true,
-            deliveryId,
-            duplicate: true,
-            message: "Delivery or run already processed",
-          },
-        };
-      }
+      return {
+        status: 200,
+        body: {
+          received: true,
+          deliveryId,
+          duplicate: true,
+          message: "Review run already exists for this commit",
+        },
+      };
     }
-    throw err;
-  }
+
+    // Create new review run
+    const run = await tx.reviewRun.create({
+      data: {
+        repositoryId: repository.id,
+        prNumber: payload.number,
+        headSha: payload.pull_request.head.sha,
+        baseSha,
+        status: ReviewStatus.QUEUED,
+        trigger: ReviewTrigger.WEBHOOK,
+      },
+    });
+
+    await tx.webhookDelivery.update({
+      where: { deliveryId },
+      data: { reviewRunId: run.id },
+    });
+
+    return {
+      status: 202,
+      body: {
+        received: true,
+        deliveryId,
+        runId: run.id,
+        status: "queued",
+      },
+    };
+  });
 }

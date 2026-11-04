@@ -45,8 +45,8 @@ jobs:
       - name: Deploy Prisma migrations to test database
         run: npx prisma migrate deploy
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/reviewlens_test?schema=public
-          DIRECT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/reviewlens_test?schema=public
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
+          DIRECT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
 
       - name: Type-check
         run: npm run typecheck
@@ -60,8 +60,10 @@ jobs:
       - name: Run PostgreSQL integration tests
         run: npm run test:integration
         env:
-          DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/reviewlens_test?schema=public
-          DIRECT_DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/reviewlens_test?schema=public
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
+          DIRECT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
+          DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
+          DIRECT_DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
 
       - name: Build applications
         run: npm run build
