@@ -14,6 +14,7 @@
     "dev": "concurrently -k -n web,api \"npm run dev --workspace=@reviewlens/web\" \"npm run dev --workspace=@reviewlens/api\"",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspace=@reviewlens/api",
     "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: reviewlens-db
+    environment:
+      POSTGRES_USER: reviewlens
+      POSTGRES_PASSWORD: reviewlens_dev_password
+      POSTGRES_DB: reviewlens_dev
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - reviewlens_pgdata:/var/lib/postgresql/data
+      - ./docker/init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reviewlens -d reviewlens_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 2s
+    networks:
+      - reviewlens-network
+
+  api:
+    image: reviewlens-backend:m0
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reviewlens-api
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://reviewlens:reviewlens_dev_password@db:5432/reviewlens_dev?schema=public
+      DIRECT_DATABASE_URL: postgresql://reviewlens:reviewlens_dev_password@db:5432/reviewlens_dev?schema=public
+      GITHUB_WEBHOOK_SECRET: development-only-webhook-secret
+      NODE_ENV: development
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3001/readyz').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - reviewlens-network
+
+volumes:
+  reviewlens_pgdata:
+    name: reviewlens_pgdata
+
+networks:
+  reviewlens-network:
+    name: reviewlens-network

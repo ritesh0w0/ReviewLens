@@ -1,0 +1,34 @@
+# Git and IDE
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Dependencies and caches
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+
+# Build outputs and coverage
+dist
+coverage
+*.tsbuildinfo
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# Temporary files and OS
+tmp
+*.log
+.DS_Store
+Thumbs.db
+

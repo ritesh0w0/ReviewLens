@@ -442,4 +442,309 @@ describe("POST /webhooks/github - M1.2 Persistence & Idempotency", () => {
     expect(resNoHeaders.status).toBe(400);
     expect(resNoHeaders.body.error).toBe("Missing GitHub event headers");
   });
+
+  it("11. Stranded delivery with status RECEIVED is recovered, creates the missing review run, and returns 202", async () => {
+    const payload = createValidPullRequestPayload();
+    const body = JSON.stringify(payload);
+    const deliveryId = "stranded-delivery-01";
+
+    // Simulate an incomplete/stranded delivery in storage (status RECEIVED, no reviewRunId)
+    mockPrisma._storage.webhookDeliveries.set(deliveryId, {
+      deliveryId,
+      event: "pull_request",
+      action: "opened",
+      installationGithubId: 554433n,
+      status: DeliveryStatus.RECEIVED,
+      error: null,
+      attemptCount: 1,
+      lastAttemptAt: new Date(Date.now() - 60000),
+      receivedAt: new Date(Date.now() - 60000),
+      updatedAt: new Date(Date.now() - 60000),
+      reviewRunId: null,
+    });
+
+    expect(mockPrisma._storage.webhookDeliveries.size).toBe(1);
+    expect(mockPrisma._storage.reviewRuns.size).toBe(0);
+
+    const app = createApp({ webhookSecret: testSecret, prisma: mockPrisma });
+
+    const response = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", deliveryId)
+      .send(body);
+
+    expect(response.status).toBe(202);
+    expect(response.body.received).toBe(true);
+    expect(response.body.deliveryId).toBe(deliveryId);
+    expect(response.body.status).toBe("queued");
+    expect(response.body.runId).toBeDefined();
+
+    // Delivery was reused, not duplicated
+    expect(mockPrisma._storage.webhookDeliveries.size).toBe(1);
+    const delivery = mockPrisma._storage.webhookDeliveries.get(deliveryId);
+    expect(delivery).toBeDefined();
+    expect(delivery!.reviewRunId).toBe(response.body.runId);
+    expect(delivery!.attemptCount).toBe(2);
+
+    // Review run was created
+    expect(mockPrisma._storage.reviewRuns.size).toBe(1);
+  });
+
+  it("12. Repeated delivery for an already-recovered run does not create duplicate review runs", async () => {
+    const payload = createValidPullRequestPayload();
+    const body = JSON.stringify(payload);
+    const deliveryId = "recovered-repeat-del";
+
+    const app = createApp({ webhookSecret: testSecret, prisma: mockPrisma });
+
+    // First attempt: creates the run
+    const res1 = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", deliveryId)
+      .send(body);
+
+    expect(res1.status).toBe(202);
+    expect(mockPrisma._storage.reviewRuns.size).toBe(1);
+    expect(mockPrisma._storage.webhookDeliveries.size).toBe(1);
+
+    // Second attempt with same deliveryId (status is still RECEIVED because queue worker is pending)
+    const res2 = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", deliveryId)
+      .send(body);
+
+    expect(res2.status).toBe(200);
+    expect(res2.body.duplicate).toBe(true);
+    expect(res2.body.deliveryId).toBe(deliveryId);
+
+    // Assert no duplicate review runs were created
+    expect(mockPrisma._storage.reviewRuns.size).toBe(1);
+    expect(mockPrisma._storage.webhookDeliveries.size).toBe(1);
+  });
+
+  it("13. Duplicate delivery with status ENQUEUED is acknowledged without entering review processing", async () => {
+    const payload = createValidPullRequestPayload();
+    const body = JSON.stringify(payload);
+    const deliveryId = "enqueued-duplicate-del";
+
+    // Simulate an already-enqueued delivery in storage
+    mockPrisma._storage.webhookDeliveries.set(deliveryId, {
+      deliveryId,
+      event: "pull_request",
+      action: "opened",
+      installationGithubId: 554433n,
+      status: DeliveryStatus.ENQUEUED,
+      error: null,
+      attemptCount: 1,
+      lastAttemptAt: new Date(),
+      receivedAt: new Date(),
+      updatedAt: new Date(),
+      reviewRunId: "run-pre-existing",
+    });
+
+    const app = createApp({ webhookSecret: testSecret, prisma: mockPrisma });
+
+    const response = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", deliveryId)
+      .send(body);
+
+    expect(response.status).toBe(200);
+    expect(response.body.duplicate).toBe(true);
+    expect(response.body.deliveryId).toBe(deliveryId);
+
+    // Assert no new review run was created
+    expect(mockPrisma._storage.reviewRuns.size).toBe(0);
+    expect(mockPrisma._storage.webhookDeliveries.size).toBe(1);
+  });
+
+  it("14. Duplicate delivery with status IGNORED is acknowledged without entering review processing", async () => {
+    const payload = createValidPullRequestPayload();
+    const body = JSON.stringify(payload);
+    const deliveryId = "ignored-duplicate-del";
+
+    mockPrisma._storage.webhookDeliveries.set(deliveryId, {
+      deliveryId,
+      event: "pull_request",
+      action: "opened",
+      installationGithubId: 554433n,
+      status: DeliveryStatus.IGNORED,
+      error: "Draft pull request",
+      attemptCount: 1,
+      lastAttemptAt: new Date(),
+      receivedAt: new Date(),
+      updatedAt: new Date(),
+      reviewRunId: null,
+    });
+
+    const app = createApp({ webhookSecret: testSecret, prisma: mockPrisma });
+
+    const response = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", deliveryId)
+      .send(body);
+
+    expect(response.status).toBe(200);
+    expect(response.body.duplicate).toBe(true);
+    expect(response.body.deliveryId).toBe(deliveryId);
+
+    expect(mockPrisma._storage.reviewRuns.size).toBe(0);
+    expect(mockPrisma._storage.webhookDeliveries.size).toBe(1);
+  });
+
+  it("15. FAILED delivery under retry limit re-enters recovery path, while exhausted FAILED delivery is acknowledged without retrying", async () => {
+    const payload = createValidPullRequestPayload();
+    const body = JSON.stringify(payload);
+    const app = createApp({ webhookSecret: testSecret, prisma: mockPrisma });
+
+    // 15a. FAILED delivery with attemptCount: 1 (eligible for recovery)
+    mockPrisma._storage.webhookDeliveries.set("failed-del-retry", {
+      deliveryId: "failed-del-retry",
+      event: "pull_request",
+      action: "opened",
+      installationGithubId: 554433n,
+      status: DeliveryStatus.FAILED,
+      error: "Temporary network glitch",
+      attemptCount: 1,
+      lastAttemptAt: new Date(),
+      receivedAt: new Date(),
+      updatedAt: new Date(),
+      reviewRunId: null,
+    });
+
+    const resRetry = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", "failed-del-retry")
+      .send(body);
+
+    expect(resRetry.status).toBe(202);
+    expect(resRetry.body.status).toBe("queued");
+    expect(mockPrisma._storage.reviewRuns.size).toBe(1);
+
+    // 15b. FAILED delivery with attemptCount: 4 (exhausted retries)
+    mockPrisma._storage.webhookDeliveries.set("failed-del-exhausted", {
+      deliveryId: "failed-del-exhausted",
+      event: "pull_request",
+      action: "opened",
+      installationGithubId: 554433n,
+      status: DeliveryStatus.FAILED,
+      error: "Persistent downstream error",
+      attemptCount: 4,
+      lastAttemptAt: new Date(),
+      receivedAt: new Date(),
+      updatedAt: new Date(),
+      reviewRunId: null,
+    });
+
+    const resExhausted = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", "failed-del-exhausted")
+      .send(body);
+
+    expect(resExhausted.status).toBe(200);
+    expect(resExhausted.body.duplicate).toBe(true);
+    expect(resExhausted.body.message).toContain("maximum retry attempts");
+  });
+
+  it("16. Delivery exceeding maximum processing attempts returns 400 error", async () => {
+    const payload = createValidPullRequestPayload();
+    const body = JSON.stringify(payload);
+
+    mockPrisma._storage.webhookDeliveries.set("del-max-exceeded", {
+      deliveryId: "del-max-exceeded",
+      event: "pull_request",
+      action: "opened",
+      installationGithubId: 554433n,
+      status: DeliveryStatus.RECEIVED,
+      error: null,
+      attemptCount: 4,
+      lastAttemptAt: new Date(),
+      receivedAt: new Date(),
+      updatedAt: new Date(),
+      reviewRunId: null,
+    });
+
+    const app = createApp({ webhookSecret: testSecret, prisma: mockPrisma });
+
+    const response = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", "del-max-exceeded")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe(
+      "Delivery has exceeded maximum processing attempts",
+    );
+
+    // Verify delivery transitioned from RECEIVED to FAILED so recovery sweeper will not repeatedly pick it up
+    const delivery =
+      mockPrisma._storage.webhookDeliveries.get("del-max-exceeded");
+    expect(delivery).toBeDefined();
+    expect(delivery!.status).toBe(DeliveryStatus.FAILED);
+    expect(delivery!.error).toBe(
+      "Delivery has exceeded maximum processing attempts",
+    );
+
+    // Subsequent redelivery returns 200 duplicate because it is now terminal FAILED with attempts >= MAX
+    const secondResponse = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", "del-max-exceeded")
+      .send(body);
+
+    expect(secondResponse.status).toBe(200);
+    expect(secondResponse.body.duplicate).toBe(true);
+    expect(secondResponse.body.message).toContain("maximum retry attempts");
+  });
+
+  it("17. Pull request payload with empty head sha is rejected with 400 validation error", async () => {
+    const invalidPayload = createValidPullRequestPayload({
+      pull_request: {
+        ...createValidPullRequestPayload().pull_request,
+        head: { sha: "" },
+      },
+    });
+    const body = JSON.stringify(invalidPayload);
+
+    const app = createApp({ webhookSecret: testSecret, prisma: mockPrisma });
+
+    const response = await request(app)
+      .post("/webhooks/github")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .set("X-GitHub-Event", "pull_request")
+      .set("X-GitHub-Delivery", "delivery-empty-sha")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain(
+      "Malformed or incomplete pull_request payload structure",
+    );
+  });
 });

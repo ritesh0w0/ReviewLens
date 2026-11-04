@@ -46,27 +46,82 @@ export type WebhookProcessResult =
       };
     };
 
+export const MAX_DELIVERY_ATTEMPTS = 4;
+
 export async function processWebhookPayload(
   prisma: PrismaClient,
   deliveryId: string,
   event: string,
   rawPayload: Record<string, unknown>,
 ): Promise<WebhookProcessResult> {
-  // Pre-check: has this delivery ID already been successfully recorded?
+  // Pre-check: has this delivery ID already reached a terminal / completed state?
   const existingDelivery = await prisma.webhookDelivery.findUnique({
     where: { deliveryId },
   });
 
-  if (existingDelivery && existingDelivery.status !== DeliveryStatus.FAILED) {
-    return {
-      status: 200,
-      body: {
-        received: true,
-        deliveryId,
-        duplicate: true,
-        message: "Delivery already processed",
-      },
-    };
+  if (existingDelivery) {
+    // 1. ENQUEUED: Work has been accepted by the background queue. Safe to acknowledge duplicate.
+    if (existingDelivery.status === DeliveryStatus.ENQUEUED) {
+      return {
+        status: 200,
+        body: {
+          received: true,
+          deliveryId,
+          duplicate: true,
+          message: "Delivery already processed",
+        },
+      };
+    }
+
+    // 2. IGNORED: Intentionally excluded. Safe to acknowledge duplicate.
+    if (existingDelivery.status === DeliveryStatus.IGNORED) {
+      return {
+        status: 200,
+        body: {
+          received: true,
+          deliveryId,
+          duplicate: true,
+          message: "Delivery already processed",
+        },
+      };
+    }
+
+    // 3. FAILED: Follow documented retry policy; do not invent unlimited retries.
+    if (
+      existingDelivery.status === DeliveryStatus.FAILED &&
+      existingDelivery.attemptCount >= MAX_DELIVERY_ATTEMPTS
+    ) {
+      return {
+        status: 200,
+        body: {
+          received: true,
+          deliveryId,
+          duplicate: true,
+          message: "Delivery failed and reached maximum retry attempts",
+        },
+      };
+    }
+
+    // 4. RECEIVED (or FAILED with attempts < MAX_DELIVERY_ATTEMPTS):
+    // Incomplete or recoverable. Must re-enter safe processing and recovery path.
+    // Check attempt limit to prevent unbounded processing loops on crashes.
+    if (existingDelivery.attemptCount >= MAX_DELIVERY_ATTEMPTS) {
+      if (existingDelivery.status !== DeliveryStatus.FAILED) {
+        await prisma.webhookDelivery.update({
+          where: { deliveryId },
+          data: {
+            status: DeliveryStatus.FAILED,
+            error: "Delivery has exceeded maximum processing attempts",
+          },
+        });
+      }
+      return {
+        status: 400,
+        body: {
+          error: "Delivery has exceeded maximum processing attempts",
+        },
+      };
+    }
   }
 
   // Handle unsupported events
@@ -91,10 +146,14 @@ export async function processWebhookPayload(
         installationGithubId,
         status: DeliveryStatus.IGNORED,
         error: `Unsupported event type: ${event}`,
+        attemptCount: 1,
+        lastAttemptAt: new Date(),
       },
       update: {
         status: DeliveryStatus.IGNORED,
         error: `Unsupported event type: ${event}`,
+        attemptCount: existingDelivery ? existingDelivery.attemptCount + 1 : 1,
+        lastAttemptAt: new Date(),
       },
     });
 
@@ -135,10 +194,14 @@ export async function processWebhookPayload(
           : null,
         status: DeliveryStatus.IGNORED,
         error: `Unsupported action: ${payload.action}`,
+        attemptCount: 1,
+        lastAttemptAt: new Date(),
       },
       update: {
         status: DeliveryStatus.IGNORED,
         error: `Unsupported action: ${payload.action}`,
+        attemptCount: existingDelivery ? existingDelivery.attemptCount + 1 : 1,
+        lastAttemptAt: new Date(),
       },
     });
 
@@ -166,10 +229,14 @@ export async function processWebhookPayload(
           : null,
         status: DeliveryStatus.IGNORED,
         error: "Draft pull request",
+        attemptCount: 1,
+        lastAttemptAt: new Date(),
       },
       update: {
         status: DeliveryStatus.IGNORED,
         error: "Draft pull request",
+        attemptCount: existingDelivery ? existingDelivery.attemptCount + 1 : 1,
+        lastAttemptAt: new Date(),
       },
     });
 
@@ -199,10 +266,14 @@ export async function processWebhookPayload(
           : null,
         status: DeliveryStatus.IGNORED,
         error: `Bot author ignored: ${authorLogin}`,
+        attemptCount: 1,
+        lastAttemptAt: new Date(),
       },
       update: {
         status: DeliveryStatus.IGNORED,
         error: `Bot author ignored: ${authorLogin}`,
+        attemptCount: existingDelivery ? existingDelivery.attemptCount + 1 : 1,
+        lastAttemptAt: new Date(),
       },
     });
 
@@ -265,10 +336,16 @@ export async function processWebhookPayload(
             installationGithubId,
             status: DeliveryStatus.IGNORED,
             error: "Repository is disabled",
+            attemptCount: 1,
+            lastAttemptAt: new Date(),
           },
           update: {
             status: DeliveryStatus.IGNORED,
             error: "Repository is disabled",
+            attemptCount: existingDelivery
+              ? existingDelivery.attemptCount + 1
+              : 1,
+            lastAttemptAt: new Date(),
           },
         });
 
@@ -292,10 +369,16 @@ export async function processWebhookPayload(
           action: payload.action,
           installationGithubId,
           status: DeliveryStatus.RECEIVED,
+          attemptCount: 1,
+          lastAttemptAt: new Date(),
         },
         update: {
           status: DeliveryStatus.RECEIVED,
           error: null,
+          attemptCount: existingDelivery
+            ? existingDelivery.attemptCount + 1
+            : 1,
+          lastAttemptAt: new Date(),
         },
       });
 
@@ -362,15 +445,42 @@ export async function processWebhookPayload(
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === "P2002"
         ) {
-          return {
-            status: 200,
-            body: {
-              received: true,
-              deliveryId,
-              duplicate: true,
-              message: "Review run already exists for this commit",
-            },
-          };
+          const target = err.meta?.target;
+          const isReviewRunKey = Array.isArray(target)
+            ? target.includes("repository_id") || target.includes("head_sha")
+            : typeof target === "string"
+              ? target.includes("review_runs")
+              : err.message.includes("review_runs");
+
+          if (isReviewRunKey) {
+            const concurrentRun = await tx.reviewRun.findUnique({
+              where: {
+                repositoryId_prNumber_headSha_baseSha: {
+                  repositoryId: repository.id,
+                  prNumber: payload.number,
+                  headSha: payload.pull_request.head.sha,
+                  baseSha,
+                },
+              },
+            });
+
+            if (concurrentRun) {
+              await tx.webhookDelivery.update({
+                where: { deliveryId },
+                data: { reviewRunId: concurrentRun.id },
+              });
+            }
+
+            return {
+              status: 200,
+              body: {
+                received: true,
+                deliveryId,
+                duplicate: true,
+                message: "Review run already exists for this commit",
+              },
+            };
+          }
         }
         throw err;
       }
@@ -380,15 +490,25 @@ export async function processWebhookPayload(
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      return {
-        status: 200,
-        body: {
-          received: true,
-          deliveryId,
-          duplicate: true,
-          message: "Delivery or run already processed",
-        },
-      };
+      const target = err.meta?.target;
+      const isDeliveryOrRunKey = Array.isArray(target)
+        ? target.includes("delivery_id") || target.includes("repository_id")
+        : typeof target === "string"
+          ? target.includes("delivery") || target.includes("review_runs")
+          : err.message.includes("delivery") ||
+            err.message.includes("review_runs");
+
+      if (isDeliveryOrRunKey) {
+        return {
+          status: 200,
+          body: {
+            received: true,
+            deliveryId,
+            duplicate: true,
+            message: "Delivery or run already processed",
+          },
+        };
+      }
     }
     throw err;
   }

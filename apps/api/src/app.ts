@@ -24,6 +24,23 @@ export function createApp(options: AppOptions = {}): Express {
     });
   });
 
+  app.get("/readyz", async (_req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return res.status(200).json({
+        status: "ready",
+        service: "reviewlens-api",
+        database: "connected",
+      });
+    } catch {
+      return res.status(503).json({
+        status: "not_ready",
+        service: "reviewlens-api",
+        database: "disconnected",
+      });
+    }
+  });
+
   app.post(
     "/webhooks/github",
     express.raw({

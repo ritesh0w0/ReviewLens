@@ -34,6 +34,16 @@ export function createMockPrismaClient(): MockPrismaClient {
   const client = {
     _storage: storage,
 
+    $queryRaw: async (): Promise<unknown> => {
+      if (storage.shouldFail) {
+        throw new Prisma.PrismaClientInitializationError(
+          "Can't reach database server at `localhost:5432`",
+          "6.19.3",
+        );
+      }
+      return [{ 1: 1 }];
+    },
+
     $transaction: async <T>(
       callback: (tx: Prisma.TransactionClient) => Promise<T>,
     ): Promise<T> => {
@@ -299,6 +309,9 @@ export function createMockPrismaClient(): MockPrismaClient {
             {
               code: "P2002",
               clientVersion: "6.19.3",
+              meta: {
+                target: ["repository_id", "pr_number", "head_sha", "base_sha"],
+              },
             },
           );
         }
