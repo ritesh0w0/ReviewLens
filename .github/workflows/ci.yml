@@ -1,4 +1,5 @@
 name: CI
+# ReviewLens CI Verification Pipeline
 
 on:
   push:
