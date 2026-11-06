@@ -80,6 +80,27 @@ jobs:
       - name: Code Formatting Check
         run: npm run format:check
 
+      - name: Dependency Vulnerability Audit
+        run: npm audit --omit=dev
+
+  security-scan:
+    name: Secret & Security Scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
   docker-validate:
     name: Docker Build Validation
     needs: [verify]
@@ -112,7 +133,7 @@ jobs:
 
   publish-images:
     name: Publish Production Images to GHCR
-    needs: [verify, docker-validate]
+    needs: [verify, security-scan, docker-validate]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -199,45 +220,47 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Log in to Azure via OIDC (if configured)
-        if: vars.AZURE_CLIENT_ID != ''
+      - name: Log in to Azure via OIDC
+        if: vars.AZURE_CLIENT_ID != '' && vars.AZURE_TENANT_ID != ''
         uses: azure/login@d19a4f1b3c068b799dff7574ac265b0144f415fe # v2.2.0
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy to Azure VM via Restricted Deployment Script
-        if: env.DEPLOY_SSH_KEY != ''
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+      - name: Deploy to Azure VM via Azure VM Run Command (No SSH / No Public IP)
+        if: vars.AZURE_CLIENT_ID != '' && vars.AZURE_TENANT_ID != ''
+        uses: azure/cli@2262108b46966a293e292dbba44073833cc27276 # v2.2.0
         with:
-          host: ${{ vars.DEPLOY_SSH_HOST || 'apidash-7f29a6.centralindia.cloudapp.azure.com' }}
-          username: ${{ vars.DEPLOY_SSH_USER || 'deploy-reviewlens' }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            sudo /opt/reviewlens/bin/deploy.sh \
-              --server-digest "${{ needs.publish-images.outputs.server_digest }}" \
-              --web-digest "${{ needs.publish-images.outputs.web_digest }}"
+          inlineScript: |
+            echo "Invoking Azure VM Run Command on VM '${{ vars.AZURE_VM_NAME || 'apidash' }}' in resource group '${{ vars.AZURE_RESOURCE_GROUP || 'rg-apidash' }}'..."
+            az vm run-command invoke \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP || 'rg-apidash' }}" \
+              --name "${{ vars.AZURE_VM_NAME || 'apidash' }}" \
+              --command-id RunShellScript \
+              --scripts "sudo /opt/reviewlens/bin/deploy.sh --server-digest '${{ needs.publish-images.outputs.server_digest }}' --web-digest '${{ needs.publish-images.outputs.web_digest }}'" \
+              --query "value[0].message" -o tsv
 
-      - name: Manual Deployment Notice
-        if: env.DEPLOY_SSH_KEY == ''
+      - name: OIDC Setup Required Notice
+        if: vars.AZURE_CLIENT_ID == '' || vars.AZURE_TENANT_ID == ''
         run: |
           echo "================================================================="
-          echo "NOTICE: DEPLOY_SSH_KEY is not configured in the 'production' environment."
-          echo "Images published to GHCR:"
+          echo "NOTICE: AZURE_CLIENT_ID or AZURE_TENANT_ID is not configured in GitHub repository variables."
+          echo "Release candidate images published to GHCR:"
           echo "  Server: ${{ needs.publish-images.outputs.server_ref }}"
+          echo "  Digest: ${{ needs.publish-images.outputs.server_digest }}"
           echo "  Web:    ${{ needs.publish-images.outputs.web_ref }}"
-          echo "To complete deployment on Azure VM, run:"
-          echo "  sudo /opt/reviewlens/bin/deploy.sh \\"
-          echo "    --server-digest '${{ needs.publish-images.outputs.server_digest }}' \\"
-          echo "    --web-digest '${{ needs.publish-images.outputs.web_digest }}'"
+          echo "  Digest: ${{ needs.publish-images.outputs.web_digest }}"
+          echo ""
+          echo "Entra ID Federated Credential Configuration Requirements:"
+          echo "  Issuer:   https://token.actions.githubusercontent.com"
+          echo "  Subject:  repo:ritesh0w0/reviewlens:environment:production"
+          echo "  Audience: api://AzureADTokenExchange"
           echo "================================================================="
 
   post-deployment-verify:

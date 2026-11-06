@@ -1,0 +1,14 @@
+# Gitleaks Configuration for ReviewLens
+# Extends default rule set while allowlisting intentional test fixtures and redactor regexes
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist intentional test fixtures, mock credentials in tests, and redaction patterns"
+paths = [
+  '''apps/api/src/test/''',
+  '''apps/api/src/ai/security/secret-scanner.ts''',
+  '''packages/eval/fixtures/''',
+  '''packages/eval/test/''',
+]

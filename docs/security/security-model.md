@@ -63,3 +63,11 @@ Large Language Models frequently hallucinate line numbers, file paths, and synta
 - **Unprivileged Runtime:** Application processes run as non-root user `node` (UID 1000).
 - **Network Isolation:** PostgreSQL is not published to host ports and is accessible only on the internal Docker network `reviewlens_internal`.
 - **Restricted CI/CD Deployment:** The `deploy-reviewlens` account has no login shell or password; its sudo permissions are strictly constrained to `/opt/reviewlens/bin/deploy.sh` and `/opt/reviewlens/bin/ops-check.sh`.
+
+---
+
+## 6. Private Key & Production Secret Hardening
+
+- **Private Key Permissions (`0640`):** `/opt/reviewlens/secrets/github_private_key.pem` is owned by `root:1000` (or `azureuser:1000`) with mode `0640`. The directory `/opt/reviewlens/secrets` is set to `0750`. This ensures that only the root user, system administrator, and the container runtime group `1000` (`node`) can read the key, completely blocking unauthorized host users.
+- **Read-Only Secret Mount:** Secrets are mounted read-only (`:ro`) into containers.
+- **Key Exposure & Rotation Assessment:** The previous permissive `0644` mode was limited to the Azure VM where only system users existed; nevertheless, key rotation is documented in the operational runbook and recommended if multi-tenant host users are added.

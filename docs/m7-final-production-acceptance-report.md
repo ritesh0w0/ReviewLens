@@ -4,7 +4,7 @@
 **Verdict:** ACCEPTED / PRODUCTION-READY  
 **Git Commit SHA:** `f9c175a` (branch: `main`)  
 **Pipeline Run:** [#42298140568](https://github.com/ritesh0w0/ReviewLens/actions/runs/42298140568)  
-**Target Host:** `apidash-7f29a6.centralindia.cloudapp.azure.com` (Azure Ubuntu 24.04 LTS, Central India)  
+**Target Host:** `apidash-7f29a6.centralindia.cloudapp.azure.com` (Azure Ubuntu 24.04 LTS, Central India)
 
 ---
 
@@ -13,6 +13,7 @@
 ReviewLens has successfully transitioned from an experimental codebase to an automated, continuously delivered, production-grade cloud application deployed on Azure VM alongside existing production workloads (`APIDash` and `TrackFlow`).
 
 The delivery achieves:
+
 1. **Automated CI/CD Quality Gates:** GitHub Actions runs 6 strict verification gates across all monorepo workspaces against a containerized PostgreSQL 16 instance.
 2. **GHCR Container Publishing:** Production-ready multi-stage Docker images (`reviewlens-server` and `reviewlens-web`) are built, validated, and published to GitHub Container Registry using immutable commit-SHA tags and cryptographic SHA256 digests.
 3. **Zero-Downtime Atomic Deployment:** Production releases are executed via an atomic deployment wrapper (`deploy.sh`) with environment backups (`release.env.previous`), automatic database migrations, and health check validation with automated rollback on failure.
@@ -26,15 +27,15 @@ The delivery achieves:
 **Workflow:** `ReviewLens CI/CD Pipeline` (`.github/workflows/ci.yml`)  
 **Run ID:** `42298140568`  
 **Trigger:** Push to `refs/heads/main`  
-**Status:** **PASSED (All 5 Jobs Succeeded)**  
+**Status:** **PASSED (All 5 Jobs Succeeded)**
 
-| Job Name | Duration | Status | Key Verifications |
-| :--- | :--- | :--- | :--- |
-| **Code Quality & Integration Tests** | 1m 53s | `SUCCESS` | PostgreSQL 16 container, Prisma migrate deploy, core package build, strict typecheck (0 errors), ESLint/Oxlint (0 warnings), unit & eval tests (331/331 passed), PostgreSQL integration tests (37/37 passed), monorepo build, Prettier format check. |
-| **Docker Build Validation** | 2m 21s | `SUCCESS` | Multi-stage Docker validation builds for API/Worker and Nginx Web SPA with `push: false`. |
-| **Publish Production Images to GHCR** | 5m 43s | `SUCCESS` | Docker Buildx multi-stage push to `ghcr.io` with commit SHA tags and immutable SHA256 digest extraction. |
-| **Deploy to Production Azure VM** | 6s | `SUCCESS` | Targets `production` environment with concurrency lock (`production-deployment`); outputs deployment digests and safe fallback instructions when automated SSH keys are managed externally. |
-| **Production Runtime Smoke Checks** | 7s | `SUCCESS` | Live HTTPS curl probes verifying ReviewLens API healthz, readyz, Web SPA, APIDash root, and TrackFlow. |
+| Job Name                              | Duration | Status    | Key Verifications                                                                                                                                                                                                                                    |
+| :------------------------------------ | :------- | :-------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Code Quality & Integration Tests**  | 1m 53s   | `SUCCESS` | PostgreSQL 16 container, Prisma migrate deploy, core package build, strict typecheck (0 errors), ESLint/Oxlint (0 warnings), unit & eval tests (331/331 passed), PostgreSQL integration tests (37/37 passed), monorepo build, Prettier format check. |
+| **Docker Build Validation**           | 2m 21s   | `SUCCESS` | Multi-stage Docker validation builds for API/Worker and Nginx Web SPA with `push: false`.                                                                                                                                                            |
+| **Publish Production Images to GHCR** | 5m 43s   | `SUCCESS` | Docker Buildx multi-stage push to `ghcr.io` with commit SHA tags and immutable SHA256 digest extraction.                                                                                                                                             |
+| **Deploy to Production Azure VM**     | 6s       | `SUCCESS` | Targets `production` environment with concurrency lock (`production-deployment`); outputs deployment digests and safe fallback instructions when automated SSH keys are managed externally.                                                          |
+| **Production Runtime Smoke Checks**   | 7s       | `SUCCESS` | Live HTTPS curl probes verifying ReviewLens API healthz, readyz, Web SPA, APIDash root, and TrackFlow.                                                                                                                                               |
 
 ---
 
@@ -42,10 +43,10 @@ The delivery achieves:
 
 All production Docker images are published to the GitHub Container Registry under immutable cryptographic digests:
 
-| Image Component | GHCR Image Reference | Immutable SHA256 Digest |
-| :--- | :--- | :--- |
+| Image Component           | GHCR Image Reference                          | Immutable SHA256 Digest                                                   |
+| :------------------------ | :-------------------------------------------- | :------------------------------------------------------------------------ |
 | **Server (API & Worker)** | `ghcr.io/ritesh0w0/reviewlens-server:f9c175a` | `sha256:b974a4d3929530223dde1e4de6c28958abe35a8bb161ea1794ebebc77db7dce9` |
-| **Web SPA (Nginx)** | `ghcr.io/ritesh0w0/reviewlens-web:f9c175a` | `sha256:b4121df7088acf197d1c9f4b38f6e39fa835f4b0f29c8d0c5051fd17df6c7103` |
+| **Web SPA (Nginx)**       | `ghcr.io/ritesh0w0/reviewlens-web:f9c175a`    | `sha256:b4121df7088acf197d1c9f4b38f6e39fa835f4b0f29c8d0c5051fd17df6c7103` |
 
 Docker Compose on the Azure VM references these exact digests via `/opt/reviewlens/compose/release.env`.
 
@@ -54,6 +55,7 @@ Docker Compose on the Azure VM references these exact digests via `/opt/reviewle
 ## 4. Azure VM Deployment & Host Status
 
 ### 4.1 System Resources
+
 - **Host:** `apidash-7f29a6.centralindia.cloudapp.azure.com` (Ubuntu 24.04 LTS, 2 vCPUs)
 - **Memory:** 3.8 GiB total, 2.3 GiB available, 1.4 GiB used
 - **Swap:** 2.0 GiB total, 68 KiB used (healthy, no swapping pressure)
@@ -61,6 +63,7 @@ Docker Compose on the Azure VM references these exact digests via `/opt/reviewle
 - **Public TLS Certificate:** Let's Encrypt RSA valid through **Jan 28, 2027** (82 days remaining)
 
 ### 4.2 ReviewLens Container Fleet
+
 ```text
 NAME                  IMAGE                                                           COMMAND                  SERVICE    STATUS
 reviewlens-api        reviewlens-server@sha256:b974a4d3929530223dde1e4de6c28958...   "docker-entrypoint.s…"   api        Up (healthy) [127.0.0.1:3001]
@@ -70,6 +73,7 @@ reviewlens-worker     reviewlens-server@sha256:b974a4d3929530223dde1e4de6c28958.
 ```
 
 ### 4.3 Database & Queue State
+
 - **Prisma Migrations Applied:** 4 migrations deployed to production database:
   - `20261022143000_init`
   - `20261104135722_add_review_run_worker_claim_fields`
@@ -87,15 +91,15 @@ reviewlens-worker     reviewlens-server@sha256:b974a4d3929530223dde1e4de6c28958.
 
 All public endpoints were probed directly over HTTPS:
 
-| Service / Endpoint | Public URL | HTTP Status | Response Details |
-| :--- | :--- | :--- | :--- |
-| **ReviewLens Frontend SPA** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/` | `200 OK` | HTML document delivered with Vite bundle assets |
-| **ReviewLens API Health** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/healthz` | `200 OK` | `{"status":"ok"}` |
-| **ReviewLens API Readiness** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/readyz` | `200 OK` | `{"status":"ready","database":"connected"}` |
-| **ReviewLens OAuth Init** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/auth/github` | `302 Found` | Redirects to GitHub OAuth with Client ID `Iv23lirSmpMb6gxmf2IY` & PKCE `S256` |
-| **ReviewLens Webhook Ingress** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/webhooks/github` | `401 Unauthorized` | Rejected unsigned payload: `{"error":"Invalid webhook signature"}` |
-| **APIDash (Native App)** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/` | `200 OK` | Native Node.js/Express service on loopback 5000 active, MySQL active |
-| **TrackFlow (Native App)** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/trackflow/` | `200 OK` | Native Next.js service on loopback 5001 active, Neon DB active |
+| Service / Endpoint             | Public URL                                                                              | HTTP Status        | Response Details                                                              |
+| :----------------------------- | :-------------------------------------------------------------------------------------- | :----------------- | :---------------------------------------------------------------------------- |
+| **ReviewLens Frontend SPA**    | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/`                    | `200 OK`           | HTML document delivered with Vite bundle assets                               |
+| **ReviewLens API Health**      | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/healthz`         | `200 OK`           | `{"status":"ok"}`                                                             |
+| **ReviewLens API Readiness**   | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/readyz`          | `200 OK`           | `{"status":"ready","database":"connected"}`                                   |
+| **ReviewLens OAuth Init**      | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/auth/github`     | `302 Found`        | Redirects to GitHub OAuth with Client ID `Iv23lirSmpMb6gxmf2IY` & PKCE `S256` |
+| **ReviewLens Webhook Ingress** | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/webhooks/github` | `401 Unauthorized` | Rejected unsigned payload: `{"error":"Invalid webhook signature"}`            |
+| **APIDash (Native App)**       | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/`                               | `200 OK`           | Native Node.js/Express service on loopback 5000 active, MySQL active          |
+| **TrackFlow (Native App)**     | `https://apidash-7f29a6.centralindia.cloudapp.azure.com/trackflow/`                     | `200 OK`           | Native Next.js service on loopback 5001 active, Neon DB active                |
 
 ---
 
