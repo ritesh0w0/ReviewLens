@@ -196,6 +196,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
 
     steps:
       - name: Check out repository
@@ -210,7 +212,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy to Azure VM via Restricted Deployment Script
-        if: secrets.DEPLOY_SSH_KEY != ''
+        if: env.DEPLOY_SSH_KEY != ''
         uses: appleboy/ssh-action@7eaf766715f9fa16500224215d025131f7762d6b # v1.2.0
         with:
           host: ${{ vars.DEPLOY_SSH_HOST || 'apidash-7f29a6.centralindia.cloudapp.azure.com' }}
@@ -222,7 +224,7 @@ jobs:
               --web-digest "${{ needs.publish-images.outputs.web_digest }}"
 
       - name: Manual Deployment Notice
-        if: secrets.DEPLOY_SSH_KEY == ''
+        if: env.DEPLOY_SSH_KEY == ''
         run: |
           echo "================================================================="
           echo "NOTICE: DEPLOY_SSH_KEY is not configured in the 'production' environment."
