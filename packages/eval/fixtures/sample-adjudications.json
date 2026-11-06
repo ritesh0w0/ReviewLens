@@ -1,0 +1,19 @@
+[
+  {
+    "candidateFingerprint": "fp-case07-fp-01",
+    "caseId": "CASE-07",
+    "outcome": "FALSE_POSITIVE",
+    "reviewerNotes": "Confirmed false positive: The identifier 'password' appears in UI text label constant, not an exposed credential.",
+    "adjudicatedAt": "2026-11-06T00:35:00.000Z",
+    "adjudicatedBy": "security-lead@reviewlens.local"
+  },
+  {
+    "candidateFingerprint": "fp-case01-tp-01",
+    "caseId": "CASE-01",
+    "matchedIssueId": "ISSUE-01-01",
+    "outcome": "MATCH",
+    "reviewerNotes": "Accurately identified unvalidated property chain.",
+    "adjudicatedAt": "2026-11-06T00:36:00.000Z",
+    "adjudicatedBy": "lead-maintainer@reviewlens.local"
+  }
+]

@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "eval:m5": "npm run --workspace=@reviewlens/eval eval --",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },
@@ -29,11 +30,11 @@
     "eslint": "^9.39.5",
     "globals": "^17.13.0",
     "prettier": "^3.9.10",
-    "prisma": "^6.19.3",
+    "prisma": "7.10.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.2"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3"
+    "@prisma/client": "7.10.1"
   }
 }

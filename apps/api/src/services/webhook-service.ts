@@ -5,11 +5,29 @@ import {
   ReviewStatus,
   ReviewTrigger,
   type PrismaClient,
-} from "@prisma/client";
+} from "../generated/prisma/client.js";
 import {
   githubPullRequestPayloadSchema,
   isSupportedPullRequestAction,
 } from "../github/webhook-schemas.js";
+import { fromPrisma } from "pg-boss";
+import { QUEUE_REVIEW_PR } from "../queue/queues.js";
+import {
+  processInstallationLifecycle,
+  type GitHubInstallationWebhookPayload,
+} from "./installation-service.js";
+
+export interface QueueProducer {
+  insert(
+    queue: string,
+    jobs: Array<{ id?: string; data?: object }>,
+    options?: { returnId?: boolean; db?: unknown },
+  ): Promise<string[] | null>;
+  findJobs?(
+    queue: string,
+    options?: { id?: string },
+  ): Promise<Array<{ id: string; data?: unknown }>>;
+}
 
 export type WebhookProcessResult =
   | {
@@ -53,6 +71,7 @@ export async function processWebhookPayload(
   deliveryId: string,
   event: string,
   rawPayload: Record<string, unknown>,
+  boss?: QueueProducer,
 ): Promise<WebhookProcessResult> {
   const maxConcurrencyRetries = 5;
   let attempt = 0;
@@ -64,11 +83,12 @@ export async function processWebhookPayload(
         deliveryId,
         event,
         rawPayload,
+        boss,
       );
     } catch (err) {
-      const isKnownPrisma = err instanceof Prisma.PrismaClientKnownRequestError;
       const isRetryable =
-        isKnownPrisma && (err.code === "P2002" || err.code === "P2034");
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        (err.code === "P2002" || err.code === "P2034");
 
       if (isRetryable && attempt < maxConcurrencyRetries) {
         attempt++;
@@ -106,6 +126,7 @@ async function executeWebhookProcessing(
   deliveryId: string,
   event: string,
   rawPayload: Record<string, unknown>,
+  boss?: QueueProducer,
 ): Promise<WebhookProcessResult> {
   // Pre-check: has this delivery ID already reached a terminal / completed state?
   const existingDelivery = await prisma.webhookDelivery.findUnique({
@@ -188,6 +209,55 @@ async function executeWebhookProcessing(
         },
       };
     }
+  }
+
+  // Handle installation lifecycle events
+  if (event === "installation" || event === "installation_repositories") {
+    const action =
+      typeof rawPayload.action === "string" ? rawPayload.action : null;
+    const installationGithubId =
+      rawPayload.installation &&
+      typeof rawPayload.installation === "object" &&
+      "id" in rawPayload.installation &&
+      typeof rawPayload.installation.id === "number"
+        ? BigInt(rawPayload.installation.id)
+        : null;
+
+    const result = await processInstallationLifecycle(
+      prisma,
+      event,
+      rawPayload as unknown as GitHubInstallationWebhookPayload,
+    );
+
+    await prisma.webhookDelivery.upsert({
+      where: { deliveryId },
+      create: {
+        deliveryId,
+        event,
+        action,
+        installationGithubId,
+        status: DeliveryStatus.IGNORED,
+        error: result.reason,
+        attemptCount: 1,
+        lastAttemptAt: new Date(),
+      },
+      update: {
+        status: DeliveryStatus.IGNORED,
+        error: result.reason,
+        attemptCount: existingDelivery ? existingDelivery.attemptCount + 1 : 1,
+        lastAttemptAt: new Date(),
+      },
+    });
+
+    return {
+      status: 200,
+      body: {
+        received: true,
+        deliveryId,
+        ignored: true,
+        reason: result.reason,
+      },
+    };
   }
 
   // Handle unsupported events
@@ -460,10 +530,31 @@ async function executeWebhookProcessing(
     });
 
     if (existingRun) {
-      await tx.webhookDelivery.update({
-        where: { deliveryId },
-        data: { reviewRunId: existingRun.id },
-      });
+      if (boss) {
+        await boss.insert(
+          QUEUE_REVIEW_PR,
+          [
+            {
+              id: existingRun.id,
+              data: { schemaVersion: 1, runId: existingRun.id },
+            },
+          ],
+          { returnId: true, db: fromPrisma(tx) },
+        );
+
+        await tx.webhookDelivery.update({
+          where: { deliveryId },
+          data: {
+            reviewRunId: existingRun.id,
+            status: DeliveryStatus.ENQUEUED,
+          },
+        });
+      } else {
+        await tx.webhookDelivery.update({
+          where: { deliveryId },
+          data: { reviewRunId: existingRun.id },
+        });
+      }
 
       return {
         status: 200,
@@ -488,10 +579,31 @@ async function executeWebhookProcessing(
       },
     });
 
-    await tx.webhookDelivery.update({
-      where: { deliveryId },
-      data: { reviewRunId: run.id },
-    });
+    if (boss) {
+      await boss.insert(
+        QUEUE_REVIEW_PR,
+        [
+          {
+            id: run.id,
+            data: { schemaVersion: 1, runId: run.id },
+          },
+        ],
+        { returnId: true, db: fromPrisma(tx) },
+      );
+
+      await tx.webhookDelivery.update({
+        where: { deliveryId },
+        data: {
+          reviewRunId: run.id,
+          status: DeliveryStatus.ENQUEUED,
+        },
+      });
+    } else {
+      await tx.webhookDelivery.update({
+        where: { deliveryId },
+        data: { reviewRunId: run.id },
+      });
+    }
 
     return {
       status: 202,

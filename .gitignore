@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+apps/api/src/generated/
 .env
 .env.*
 !.env.example
@@ -8,3 +9,6 @@ coverage/
 *.key
 *.log
 .DS_Store
+eval-results/
+secrets/
+*.pem

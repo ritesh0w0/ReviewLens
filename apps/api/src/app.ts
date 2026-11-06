@@ -1,31 +1,76 @@
 import express, { type Express } from "express";
 import pino from "pino";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "./generated/prisma/client.js";
 import { genericWebhookPayloadSchema } from "./github/webhook-schemas.js";
 import { verifyWebhookSignature } from "./github/verify-webhook-signature.js";
-import { processWebhookPayload } from "./services/webhook-service.js";
+import {
+  processWebhookPayload,
+  type QueueProducer,
+} from "./services/webhook-service.js";
 import { getPrismaClient } from "./db/client.js";
+import {
+  OctokitGitHubUserClient,
+  type GitHubUserClient,
+} from "./github/user-client.js";
+import { createAuthRoutes } from "./routes/auth-routes.js";
+import { createDashboardRoutes } from "./routes/dashboard-routes.js";
+import { csrfProtection } from "./auth/csrf.js";
 
 export type AppOptions = {
   webhookSecret?: string;
   prisma?: PrismaClient;
+  boss?: QueueProducer;
+  userClient?: GitHubUserClient;
+  clientId?: string;
+  clientSecret?: string;
+  callbackUrl?: string;
+  frontendUrl?: string;
+  trustedOrigins?: string[];
 };
 
 const logger = pino();
 
 export function createApp(options: AppOptions = {}): Express {
   const app = express();
-  const prisma = options.prisma ?? getPrismaClient();
+  app.set("trust proxy", 1);
+  const getDb = () => options.prisma ?? getPrismaClient();
+  const userClient = options.userClient ?? new OctokitGitHubUserClient();
 
-  app.get("/healthz", (_req, res) => {
+  const frontendUrl =
+    options.frontendUrl ?? process.env.FRONTEND_URL ?? "http://localhost:5173";
+  const trustedOrigins = options.trustedOrigins ?? [frontendUrl];
+
+  // CORS middleware for authenticated browser dashboard
+  app.use((req, res, next) => {
+    const origin = req.header("origin");
+    if (origin && trustedOrigins.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+      );
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, x-csrf-token, Authorization",
+      );
+    }
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
+  app.get(["/healthz", "/api/healthz"], (_req, res) => {
     res.status(200).json({
       status: "ok",
       service: "reviewlens-api",
     });
   });
 
-  app.get("/readyz", async (_req, res) => {
+  app.get(["/readyz", "/api/readyz"], async (_req, res) => {
     try {
+      const prisma = getDb();
       await prisma.$queryRaw`SELECT 1`;
       return res.status(200).json({
         status: "ready",
@@ -42,7 +87,7 @@ export function createApp(options: AppOptions = {}): Express {
   });
 
   app.post(
-    "/webhooks/github",
+    ["/webhooks/github", "/api/webhooks/github"],
     express.raw({
       type: "application/json",
       limit: "1mb",
@@ -105,10 +150,11 @@ export function createApp(options: AppOptions = {}): Express {
 
       try {
         const result = await processWebhookPayload(
-          prisma,
+          getDb(),
           deliveryId,
           event,
           parsedPayload.data,
+          options.boss,
         );
 
         return res.status(result.status).json(result.body);
@@ -127,6 +173,34 @@ export function createApp(options: AppOptions = {}): Express {
         });
       }
     },
+  );
+
+  // Parse JSON bodies for all API routes (scoped to /api to preserve webhook raw body)
+  app.use("/api", express.json());
+
+  // Enforce CSRF protection on API state-changing routes
+  app.use("/api", csrfProtection(trustedOrigins));
+
+  // Mount Authentication routes
+  app.use(
+    "/api/auth",
+    createAuthRoutes({
+      prisma: getDb,
+      userClient,
+      clientId: options.clientId,
+      clientSecret: options.clientSecret,
+      callbackUrl: options.callbackUrl,
+      frontendUrl,
+    }),
+  );
+
+  // Mount Dashboard and Review routes
+  app.use(
+    "/api",
+    createDashboardRoutes({
+      prisma: getDb,
+      userClient,
+    }),
   );
 
   return app;

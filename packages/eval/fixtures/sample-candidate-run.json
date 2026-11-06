@@ -1,0 +1,273 @@
+{
+  "runId": "eval-run-20261106-candidate-pro-v11",
+  "datasetId": "reviewlens-benchmark-v1",
+  "datasetVersion": "1.0.0",
+  "evaluator": "human-reviewer",
+  "timestamp": "2026-11-06T01:00:00.000Z",
+  "provider": "google",
+  "modelId": "gemini-3.5-pro",
+  "promptVersion": "1.1",
+  "schemaVersion": "1.0",
+  "caseResults": [
+    {
+      "caseId": "CASE-01",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 410,
+      "tokensIn": 460,
+      "tokensOut": 90,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_CORRECTNESS",
+          "title": "Unvalidated optional property access",
+          "message": "user.profile.details is accessed without verifying profile presence.",
+          "severity": "high",
+          "scope": "line",
+          "confidence": 0.94,
+          "fingerprint": "fp-case01-cand-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.1"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/user-service.ts",
+            "side": "RIGHT",
+            "line": 19,
+            "commitSha": "1111111111111111111111111111111111111112",
+            "lineHash": "hash19",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-02",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 350,
+      "tokensIn": 390,
+      "tokensOut": 95,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_CORRECTNESS",
+          "title": "Inverted rate limiting condition",
+          "message": "The comparison operator rejects requests when count is below limit.",
+          "severity": "critical",
+          "scope": "line",
+          "confidence": 0.98,
+          "fingerprint": "fp-case02-cand-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.1"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/rate-limiter.ts",
+            "side": "RIGHT",
+            "line": 17,
+            "commitSha": "2222222222222222222222222222222222222222",
+            "lineHash": "hash17",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-03",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 380,
+      "tokensIn": 420,
+      "tokensOut": 85,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_SECURITY",
+          "title": "SQL Injection vulnerability",
+          "message": "Raw string concatenation in SQL query allows command injection.",
+          "severity": "critical",
+          "scope": "line",
+          "confidence": 0.99,
+          "fingerprint": "fp-case03-cand-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.1"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/db/orders.ts",
+            "side": "RIGHT",
+            "line": 15,
+            "commitSha": "3333333333333333333333333333333333333332",
+            "lineHash": "hash15",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-04",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 420,
+      "tokensIn": 510,
+      "tokensOut": 90,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_RELIABILITY",
+          "title": "Unclosed stream resource leak",
+          "message": "fs.createWriteStream is opened without being closed on write errors.",
+          "severity": "high",
+          "scope": "line",
+          "confidence": 0.91,
+          "fingerprint": "fp-case04-cand-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.1"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/exporter.ts",
+            "side": "RIGHT",
+            "line": 10,
+            "commitSha": "4444444444444444444444444444444444444442",
+            "lineHash": "hash10stream",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-05",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 370,
+      "tokensIn": 430,
+      "tokensOut": 95,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_SECURITY",
+          "title": "Critical role authorization check deleted",
+          "message": "Admin role check removal allows unauthenticated access to admin endpoints.",
+          "severity": "critical",
+          "scope": "line",
+          "confidence": 0.96,
+          "fingerprint": "fp-case05-cand-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.1"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/auth-interceptor.ts",
+            "side": "LEFT",
+            "line": 18,
+            "commitSha": "5555555555555555555555555555555555555551",
+            "lineHash": "hash18left",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-06",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 0,
+      "candidatesValidated": 0,
+      "evidencePassed": 0,
+      "evidenceRejected": 0,
+      "latencyMs": 240,
+      "tokensIn": 320,
+      "tokensOut": 20,
+      "fallbackOccurred": false,
+      "acceptedFindings": []
+    },
+    {
+      "caseId": "CASE-07",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 0,
+      "candidatesValidated": 0,
+      "evidencePassed": 0,
+      "evidenceRejected": 0,
+      "latencyMs": 270,
+      "tokensIn": 350,
+      "tokensOut": 22,
+      "fallbackOccurred": false,
+      "acceptedFindings": []
+    },
+    {
+      "caseId": "CASE-08",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 390,
+      "tokensIn": 500,
+      "tokensOut": 85,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_RESOURCE_USAGE",
+          "title": "Unbounded array memory leak",
+          "message": "globalEventAuditHistory array grows monotonically without eviction.",
+          "severity": "high",
+          "scope": "line",
+          "confidence": 0.93,
+          "fingerprint": "fp-case08-cand-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.1"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/data-processor.ts",
+            "side": "RIGHT",
+            "line": 15,
+            "commitSha": "8888888888888888888888888888888888888882",
+            "lineHash": "hash15data",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    }
+  ]
+}

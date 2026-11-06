@@ -1,0 +1,273 @@
+{
+  "runId": "eval-run-20261106-baseline-flash-lite",
+  "datasetId": "reviewlens-benchmark-v1",
+  "datasetVersion": "1.0.0",
+  "evaluator": "human-reviewer",
+  "timestamp": "2026-11-06T00:30:00.000Z",
+  "provider": "google",
+  "modelId": "gemini-3.5-flash-lite",
+  "promptVersion": "1.0",
+  "schemaVersion": "1.0",
+  "caseResults": [
+    {
+      "caseId": "CASE-01",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 320,
+      "tokensIn": 450,
+      "tokensOut": 85,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_CORRECTNESS",
+          "title": "Unvalidated optional property access",
+          "message": "user.profile.details is accessed without verifying profile or details presence.",
+          "severity": "high",
+          "scope": "line",
+          "confidence": 0.88,
+          "fingerprint": "fp-case01-tp-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.0"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/user-service.ts",
+            "side": "RIGHT",
+            "line": 19,
+            "commitSha": "1111111111111111111111111111111111111112",
+            "lineHash": "hash19",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-02",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 280,
+      "tokensIn": 380,
+      "tokensOut": 90,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_CORRECTNESS",
+          "title": "Inverted rate limiting condition",
+          "message": "The condition currentCount <= maxLimit rejects requests under the quota limit.",
+          "severity": "critical",
+          "scope": "line",
+          "confidence": 0.95,
+          "fingerprint": "fp-case02-tp-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.0"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/rate-limiter.ts",
+            "side": "RIGHT",
+            "line": 17,
+            "commitSha": "2222222222222222222222222222222222222222",
+            "lineHash": "hash17",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-03",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 310,
+      "tokensIn": 410,
+      "tokensOut": 80,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_SECURITY",
+          "title": "SQL Injection vulnerability",
+          "message": "customerId is directly concatenated into SQL query string.",
+          "severity": "critical",
+          "scope": "line",
+          "confidence": 0.96,
+          "fingerprint": "fp-case03-tp-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.0"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/db/orders.ts",
+            "side": "RIGHT",
+            "line": 15,
+            "commitSha": "3333333333333333333333333333333333333332",
+            "lineHash": "hash15",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-04",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 0,
+      "candidatesValidated": 0,
+      "evidencePassed": 0,
+      "evidenceRejected": 0,
+      "latencyMs": 350,
+      "tokensIn": 500,
+      "tokensOut": 30,
+      "fallbackOccurred": false,
+      "acceptedFindings": []
+    },
+    {
+      "caseId": "CASE-05",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 290,
+      "tokensIn": 420,
+      "tokensOut": 95,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_SECURITY",
+          "title": "Removed authorization role check",
+          "message": "Deletion of admin role verification leaves route unprotected.",
+          "severity": "critical",
+          "scope": "line",
+          "confidence": 0.92,
+          "fingerprint": "fp-case05-tp-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.0"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/auth-interceptor.ts",
+            "side": "LEFT",
+            "line": 18,
+            "commitSha": "5555555555555555555555555555555555555551",
+            "lineHash": "hash18left",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-06",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 0,
+      "candidatesValidated": 0,
+      "evidencePassed": 0,
+      "evidenceRejected": 0,
+      "latencyMs": 220,
+      "tokensIn": 310,
+      "tokensOut": 25,
+      "fallbackOccurred": false,
+      "acceptedFindings": []
+    },
+    {
+      "caseId": "CASE-07",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 260,
+      "tokensIn": 340,
+      "tokensOut": 65,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_SECURITY",
+          "title": "Potential credential keyword detected",
+          "message": "Object property contains 'password' keyword in UI constant.",
+          "severity": "low",
+          "scope": "line",
+          "confidence": 0.65,
+          "fingerprint": "fp-case07-fp-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.0"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/ui/form-labels.ts",
+            "side": "RIGHT",
+            "line": 4,
+            "commitSha": "7777777777777777777777777777777777777772",
+            "lineHash": "hash4",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "caseId": "CASE-08",
+      "executionStatus": "COMPLETE",
+      "candidatesGenerated": 1,
+      "candidatesValidated": 1,
+      "evidencePassed": 1,
+      "evidenceRejected": 0,
+      "latencyMs": 330,
+      "tokensIn": 490,
+      "tokensOut": 80,
+      "fallbackOccurred": false,
+      "acceptedFindings": [
+        {
+          "schemaVersion": 1,
+          "code": "AI_RESOURCE_USAGE",
+          "title": "Unbounded event array growth",
+          "message": "globalEventAuditHistory array grows monotonically without bounds.",
+          "severity": "high",
+          "scope": "line",
+          "confidence": 0.89,
+          "fingerprint": "fp-case08-tp-01",
+          "fingerprintVersion": 1,
+          "origin": {
+            "kind": "ai_model",
+            "detectorId": "reviewlens-ai",
+            "detectorVersion": "1.0"
+          },
+          "primaryEvidence": {
+            "kind": "code_line",
+            "path": "src/data-processor.ts",
+            "side": "RIGHT",
+            "line": 15,
+            "commitSha": "8888888888888888888888888888888888888882",
+            "lineHash": "hash15data",
+            "hunkIndex": 0
+          }
+        }
+      ]
+    }
+  ]
+}

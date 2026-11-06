@@ -21,7 +21,7 @@ services:
       - reviewlens-network
 
   api:
-    image: reviewlens-backend:m0
+    image: reviewlens-backend:m1
     build:
       context: .
       dockerfile: Dockerfile
@@ -31,6 +31,8 @@ services:
       DATABASE_URL: postgresql://reviewlens:reviewlens_dev_password@db:5432/reviewlens_dev?schema=public
       DIRECT_DATABASE_URL: postgresql://reviewlens:reviewlens_dev_password@db:5432/reviewlens_dev?schema=public
       GITHUB_WEBHOOK_SECRET: development-only-webhook-secret
+      PGBOSS_POOL_MAX: 5
+      DATABASE_POOL_MAX: 5
       NODE_ENV: development
     ports:
       - "127.0.0.1:3001:3001"
@@ -51,6 +53,31 @@ services:
       start_period: 3s
     networks:
       - reviewlens-network
+
+  worker:
+    image: reviewlens-backend:m1
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reviewlens-worker
+    command: ["node", "apps/api/dist/worker.js"]
+    profiles:
+      - worker
+    environment:
+      DATABASE_URL: postgresql://reviewlens:reviewlens_dev_password@db:5432/reviewlens_dev?schema=public
+      DIRECT_DATABASE_URL: postgresql://reviewlens:reviewlens_dev_password@db:5432/reviewlens_dev?schema=public
+      PGBOSS_POOL_MAX: 5
+      DATABASE_POOL_MAX: 5
+      WORKER_CONCURRENCY: 1
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY:-}
+      NODE_ENV: development
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - reviewlens-network
+    restart: unless-stopped
 
 volumes:
   reviewlens_pgdata:

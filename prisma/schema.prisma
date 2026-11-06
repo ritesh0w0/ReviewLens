@@ -1,11 +1,10 @@
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_DATABASE_URL")
+  provider = "postgresql"
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../apps/api/src/generated/prisma"
 }
 
 enum InstallationStatus {
@@ -43,6 +42,20 @@ enum ReviewTrigger {
   SWEEPER
 
   @@map("review_trigger")
+}
+
+enum AIExecutionStatus {
+  NOT_ENABLED
+  NOT_ELIGIBLE
+  NOT_NEEDED
+  RUNNING
+  COMPLETE
+  PARTIAL
+  UNAVAILABLE
+  FAILED
+  CANCELLED
+
+  @@map("ai_execution_status")
 }
 
 model Installation {
@@ -115,14 +128,192 @@ model ReviewRun {
   tokensOut      Int?              @map("tokens_out")
   estCostUsd     Decimal?          @map("est_cost_usd") @db.Decimal(12, 8)
   githubReviewId BigInt?           @map("github_review_id")
+  claimToken     String?           @map("claim_token") @db.Uuid
+  attemptCount   Int               @default(0) @map("attempt_count")
+  lastAttemptAt  DateTime?         @map("last_attempt_at") @db.Timestamptz(3)
   createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   startedAt      DateTime?         @map("started_at") @db.Timestamptz(3)
   finishedAt     DateTime?         @map("finished_at") @db.Timestamptz(3)
 
   repository     Repository        @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
   deliveries     WebhookDelivery[]
+  aiExecution    AIReviewExecution?
+  findings       ReviewFinding[]
 
   @@unique([repositoryId, prNumber, headSha, baseSha])
   @@index([repositoryId, createdAt])
   @@map("review_runs")
+}
+
+model AIReviewExecution {
+  id                       String            @id @default(uuid()) @db.Uuid
+  reviewRunId              String            @unique @map("review_run_id") @db.Uuid
+  status                   AIExecutionStatus @default(RUNNING)
+  profile                  String
+  primaryModel             String            @map("primary_model")
+  finalModel               String?           @map("final_model")
+  totalChunks              Int               @default(0) @map("total_chunks")
+  completedChunks          Int               @default(0) @map("completed_chunks")
+  failedChunks             Int               @default(0) @map("failed_chunks")
+  skippedChunks            Int               @default(0) @map("skipped_chunks")
+  totalInputTokens         Int               @default(0) @map("total_input_tokens")
+  totalOutputTokens        Int               @default(0) @map("total_output_tokens")
+  totalCandidatesGenerated Int               @default(0) @map("total_candidates_generated")
+  totalCandidatesValidated Int               @default(0) @map("total_candidates_validated")
+  failureReason            String?           @map("failure_reason")
+  startedAt                DateTime          @default(now()) @map("started_at") @db.Timestamptz(3)
+  completedAt              DateTime?         @map("completed_at") @db.Timestamptz(3)
+
+  reviewRun                ReviewRun         @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
+  chunks                   AIReviewChunk[]
+
+  @@map("ai_review_executions")
+}
+
+model AIReviewChunk {
+  id           String             @id @default(uuid()) @db.Uuid
+  executionId  String             @map("execution_id") @db.Uuid
+  chunkIndex   Int                @map("chunk_index")
+  filePaths    String[]           @map("file_paths")
+  modelId      String             @map("model_id")
+  status       String             @default("PENDING")
+  inputTokens  Int                @default(0) @map("input_tokens")
+  outputTokens Int                @default(0) @map("output_tokens")
+  error        String?
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt  DateTime?          @map("completed_at") @db.Timestamptz(3)
+
+  execution    AIReviewExecution  @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  attempts     AIInferenceAttempt[]
+
+  @@unique([executionId, chunkIndex])
+  @@map("ai_review_chunks")
+}
+
+model AIInferenceAttempt {
+  id            String        @id @default(uuid()) @db.Uuid
+  chunkId       String        @map("chunk_id") @db.Uuid
+  attemptNumber Int           @map("attempt_number")
+  modelId       String        @map("model_id")
+  provider      String
+  status        String
+  inputTokens   Int           @default(0) @map("input_tokens")
+  outputTokens  Int           @default(0) @map("output_tokens")
+  latencyMs     Int           @default(0) @map("latency_ms")
+  errorCategory String?       @map("error_category")
+  errorMessage  String?       @map("error_message")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  chunk         AIReviewChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@index([chunkId, attemptNumber])
+  @@map("ai_inference_attempts")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  githubUserId BigInt    @unique @map("github_user_id")
+  githubLogin  String    @map("github_login")
+  avatarUrl    String?   @map("avatar_url")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
+
+  sessions           Session[]
+  installationGrants UserInstallationGrant[]
+  repositoryGrants   UserRepositoryGrant[]
+
+  @@map("users")
+}
+
+model Session {
+  id                         String    @id @default(uuid()) @db.Uuid
+  tokenHash                  String    @unique @map("token_hash")
+  userId                     String    @map("user_id") @db.Uuid
+  encryptedGitHubAccessToken String    @map("encrypted_github_access_token")
+  githubTokenExpiresAt       DateTime? @map("github_token_expires_at") @db.Timestamptz(3)
+  expiresAt                  DateTime  @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt                 DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  revokedAt                  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt                  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("sessions")
+}
+
+model OAuthTransaction {
+  id           String   @id @default(uuid()) @db.Uuid
+  state        String   @unique
+  codeVerifier String   @map("code_verifier")
+  expiresAt    DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([state])
+  @@map("oauth_transactions")
+}
+
+model UserInstallationGrant {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  installationGithubId BigInt   @map("installation_github_id")
+  accountLogin         String   @map("account_login")
+  accountType          String   @map("account_type")
+  accountAvatarUrl     String?  @map("account_avatar_url")
+  refreshedAt          DateTime @default(now()) @map("refreshed_at") @db.Timestamptz(3)
+  expiresAt            DateTime @map("expires_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, installationGithubId])
+  @@index([userId, expiresAt])
+  @@map("user_installation_grants")
+}
+
+model UserRepositoryGrant {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  installationGithubId BigInt   @map("installation_github_id")
+  repositoryGithubId   BigInt   @map("repository_github_id")
+  owner                String
+  repoName             String   @map("repo_name")
+  fullName             String   @map("full_name")
+  permissions          Json?
+  refreshedAt          DateTime @default(now()) @map("refreshed_at") @db.Timestamptz(3)
+  expiresAt            DateTime @map("expires_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, repositoryGithubId])
+  @@index([userId, installationGithubId])
+  @@index([userId, expiresAt])
+  @@map("user_repository_grants")
+}
+
+model ReviewFinding {
+  id             String   @id @default(uuid()) @db.Uuid
+  reviewRunId    String   @map("review_run_id") @db.Uuid
+  fingerprint    String
+  provenance     String
+  ruleId         String?  @map("rule_id")
+  modelId        String?  @map("model_id")
+  category       String
+  severity       String
+  title          String
+  description    String
+  recommendation String
+  confidence     Decimal? @db.Decimal(4, 3)
+  filePath       String?  @map("file_path")
+  line           Int?
+  side           String?
+  scope          String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reviewRun ReviewRun @relation(fields: [reviewRunId], references: [id], onDelete: Cascade)
+
+  @@index([reviewRunId])
+  @@index([reviewRunId, severity])
+  @@map("review_findings")
 }

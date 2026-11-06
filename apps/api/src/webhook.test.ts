@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
-import { DeliveryStatus, ReviewStatus } from "@prisma/client";
+import { DeliveryStatus, ReviewStatus } from "./generated/prisma/client.js";
 import { createApp } from "./app.js";
 import { createMockPrismaClient } from "./test/mock-prisma.js";
 

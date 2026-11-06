@@ -1,4 +1,6 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../../generated/prisma/client.js";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 import { validateAndApplyTestDbEnvironment } from "./test-db-guard.js";
 
 let testPrismaInstance: PrismaClient | undefined;
@@ -6,7 +8,33 @@ let testPrismaInstance: PrismaClient | undefined;
 export function getTestPrismaClient(): PrismaClient {
   if (!testPrismaInstance) {
     validateAndApplyTestDbEnvironment();
+
+    const connectionString =
+      process.env.DATABASE_URL_TEST || process.env.DATABASE_URL;
+
+    if (!connectionString) {
+      throw new Error(
+        "DATABASE_URL_TEST or DATABASE_URL must be set for integration tests",
+      );
+    }
+
+    const pool = new pg.Pool({
+      connectionString,
+      max: Number(process.env.DATABASE_POOL_MAX ?? 10),
+      connectionTimeoutMillis: Number(
+        process.env.DATABASE_CONNECT_TIMEOUT_MS ?? 5000,
+      ),
+      idleTimeoutMillis: Number(process.env.DATABASE_IDLE_TIMEOUT_MS ?? 10000),
+    });
+
+    pool.on("error", (err) => {
+      console.error("Unexpected error on idle pg test client pool", err);
+    });
+
+    const adapter = new PrismaPg(pool, { disposeExternalPool: true });
+
     testPrismaInstance = new PrismaClient({
+      adapter,
       log: ["error"],
     });
   }

@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for ReviewLens Backend
+# Multi-stage Dockerfile for ReviewLens Server (API, Worker, Migration)
 # Base image: Node.js 24 on Debian Bookworm Slim
 
 # Stage 1: Build stage
@@ -16,16 +16,27 @@ RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 && \
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+COPY packages/core/package.json ./packages/core/
+COPY packages/eval/package.json ./packages/eval/
 
 # Install all dependencies
 RUN npm ci
 
-# Copy Prisma schema and generate Prisma client
+# Copy Prisma schema and config
 COPY prisma ./prisma
+COPY prisma.config.ts ./
+
+# Copy core workspace and build it
+COPY packages/core ./packages/core
+RUN npm run build --workspace=@reviewlens/core
+
+# Copy API source code
+COPY apps/api ./apps/api
+
+# Generate Prisma client
 RUN npx prisma generate
 
-# Copy source code and build backend
-COPY apps/api ./apps/api
+# Build backend
 RUN npm run build --workspace=@reviewlens/api
 
 # Stage 2: Production runtime stage
@@ -46,18 +57,20 @@ ENV PORT=3001
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+COPY packages/core/package.json ./packages/core/
+COPY packages/eval/package.json ./packages/eval/
 
 # Install only production dependencies
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy generated Prisma Client from builder stage
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
-
-# Copy Prisma schema
+# Copy Prisma CLI and schema for migration execution
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
-# Copy compiled backend output
+# Copy compiled backend and core workspace outputs
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
 # Secure container: run as non-root user

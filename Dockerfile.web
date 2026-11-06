@@ -1,0 +1,45 @@
+# Multi-stage Dockerfile for ReviewLens Web
+# Base image: Node.js 24 on Debian Bookworm Slim for build, Nginx Alpine for runtime
+
+# Stage 1: Build stage
+FROM node:24-bookworm-slim AS builder
+
+WORKDIR /app
+
+# Copy package manifests
+COPY package.json package-lock.json ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY packages/core/package.json ./packages/core/
+COPY packages/eval/package.json ./packages/eval/
+
+# Install dependencies
+RUN npm ci
+
+# Copy web source code
+COPY apps/web ./apps/web
+
+# Set production base path argument
+ARG VITE_BASE_PATH=/reviewlens/
+ENV VITE_BASE_PATH=${VITE_BASE_PATH}
+
+# Build web application with Vite
+RUN npm run build --workspace=@reviewlens/web
+
+# Stage 2: Production Nginx runtime
+FROM nginx:1.27-alpine AS runner
+
+# Remove default nginx site
+RUN rm -f /etc/nginx/conf.d/default.conf
+
+# Copy custom Nginx configuration
+COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy static assets to both /usr/share/nginx/html/reviewlens and /usr/share/nginx/html
+COPY --from=builder /app/apps/web/dist /usr/share/nginx/html/reviewlens
+COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+

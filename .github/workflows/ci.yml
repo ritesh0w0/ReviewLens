@@ -1,5 +1,4 @@
-name: CI
-# ReviewLens CI Verification Pipeline
+name: ReviewLens CI/CD Pipeline
 
 on:
   push:
@@ -11,8 +10,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   verify:
+    name: Code Quality & Integration Tests
     runs-on: ubuntu-latest
 
     services:
@@ -25,17 +29,17 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - name: Set up Node.js 24
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
           node-version: "24"
           cache: npm
@@ -43,34 +47,226 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Deploy Prisma migrations to test database
+      - name: Deploy Prisma migrations to CI test database
         run: npx prisma migrate deploy
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
           DIRECT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
 
-      - name: Type-check
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+
+      - name: Strict Typecheck
         run: npm run typecheck
 
-      - name: Lint
+      - name: Lint Code
         run: npm run lint
 
-      - name: Run unit tests
+      - name: Run Monorepo Unit Tests
         run: npm test
 
-      - name: Run PostgreSQL integration tests
+      - name: Run PostgreSQL Integration Tests
         run: npm run test:integration
         env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
-          DIRECT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
           DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
           DIRECT_DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/reviewlens_test?schema=public
 
-      - name: Build applications
+      - name: Build All Workspaces
         run: npm run build
 
-      - name: Check formatting
+      - name: Code Formatting Check
         run: npm run format:check
 
-      - name: Build backend Docker image
-        run: docker build -t reviewlens-backend:ci .
+  docker-validate:
+    name: Docker Build Validation
+    needs: [verify]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Build Server Image (Validation Only)
+        uses: docker/build-push-action@4a13e500e05cf64e7086fac5b6fc3dd22f7757db # v5.1.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: reviewlens-server:validate
+
+      - name: Build Web Image (Validation Only)
+        uses: docker/build-push-action@4a13e500e05cf64e7086fac5b6fc3dd22f7757db # v5.1.0
+        with:
+          context: .
+          file: ./Dockerfile.web
+          push: false
+          build-args: |
+            VITE_BASE_PATH=/reviewlens/
+          tags: reviewlens-web:validate
+
+  publish-images:
+    name: Publish Production Images to GHCR
+    needs: [verify, docker-validate]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      server_digest: ${{ steps.server_push.outputs.digest }}
+      web_digest: ${{ steps.web_push.outputs.digest }}
+      server_ref: ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-server@${{ steps.server_push.outputs.digest }}
+      web_ref: ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-web@${{ steps.web_push.outputs.digest }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Downcase Repository Owner for GHCR
+        id: repo_owner
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and Push Server Image
+        id: server_push
+        uses: docker/build-push-action@4a13e500e05cf64e7086fac5b6fc3dd22f7757db # v5.1.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-server:${{ github.sha }}
+            ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-server:sha-${{ github.sha }}
+            ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-server:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=ReviewLens API and Worker Server
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Web Image
+        id: web_push
+        uses: docker/build-push-action@4a13e500e05cf64e7086fac5b6fc3dd22f7757db # v5.1.0
+        with:
+          context: .
+          file: ./Dockerfile.web
+          push: true
+          build-args: |
+            VITE_BASE_PATH=/reviewlens/
+          tags: |
+            ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-web:${{ github.sha }}
+            ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-web:sha-${{ github.sha }}
+            ghcr.io/${{ steps.repo_owner.outputs.owner }}/reviewlens-web:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=ReviewLens Web Dashboard
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record and Display Published Image Digests
+        run: |
+          echo "================================================================="
+          echo "Published Server Image Digest: ${{ steps.server_push.outputs.digest }}"
+          echo "Published Web Image Digest:    ${{ steps.web_push.outputs.digest }}"
+          echo "================================================================="
+
+  deploy-production:
+    name: Deploy to Production Azure VM
+    needs: [publish-images]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/
+    concurrency: production-deployment
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Log in to Azure via OIDC (if configured)
+        if: vars.AZURE_CLIENT_ID != ''
+        uses: azure/login@a65d910e8ad852c8061c6a50592b324091f91096 # v2.2.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure VM via Restricted Deployment Script
+        if: secrets.DEPLOY_SSH_KEY != ''
+        uses: appleboy/ssh-action@7eaf766715f9fa16500224215d025131f7762d6b # v1.2.0
+        with:
+          host: ${{ vars.DEPLOY_SSH_HOST || 'apidash-7f29a6.centralindia.cloudapp.azure.com' }}
+          username: ${{ vars.DEPLOY_SSH_USER || 'deploy-reviewlens' }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            sudo /opt/reviewlens/bin/deploy.sh \
+              --server-digest "${{ needs.publish-images.outputs.server_digest }}" \
+              --web-digest "${{ needs.publish-images.outputs.web_digest }}"
+
+      - name: Manual Deployment Notice
+        if: secrets.DEPLOY_SSH_KEY == ''
+        run: |
+          echo "================================================================="
+          echo "NOTICE: DEPLOY_SSH_KEY is not configured in the 'production' environment."
+          echo "Images published to GHCR:"
+          echo "  Server: ${{ needs.publish-images.outputs.server_ref }}"
+          echo "  Web:    ${{ needs.publish-images.outputs.web_ref }}"
+          echo "To complete deployment on Azure VM, run:"
+          echo "  sudo /opt/reviewlens/bin/deploy.sh \\"
+          echo "    --server-digest '${{ needs.publish-images.outputs.server_digest }}' \\"
+          echo "    --web-digest '${{ needs.publish-images.outputs.web_digest }}'"
+          echo "================================================================="
+
+  post-deployment-verify:
+    name: Production Runtime Smoke Checks
+    needs: [deploy-production]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify ReviewLens API Health Probe
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/healthz)
+          echo "ReviewLens API healthz HTTP Status: $status"
+          test "$status" = "200"
+
+      - name: Verify ReviewLens API Readiness Probe
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/api/readyz)
+          echo "ReviewLens API readyz HTTP Status: $status"
+          test "$status" = "200"
+
+      - name: Verify ReviewLens Web Frontend SPA
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" https://apidash-7f29a6.centralindia.cloudapp.azure.com/reviewlens/)
+          echo "ReviewLens Web SPA HTTP Status: $status"
+          test "$status" = "200"
+
+      - name: Verify APIDash Coexistence (Non-Interference)
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" https://apidash-7f29a6.centralindia.cloudapp.azure.com/)
+          echo "APIDash HTTP Status: $status"
+          test "$status" = "200"
+
+      - name: Verify TrackFlow Coexistence (Non-Interference)
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" https://apidash-7f29a6.centralindia.cloudapp.azure.com/trackflow/)
+          echo "TrackFlow HTTP Status: $status"
+          test "$status" = "200"
