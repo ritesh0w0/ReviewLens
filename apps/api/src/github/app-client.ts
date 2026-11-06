@@ -93,8 +93,10 @@ export class OctokitPullRequestClient implements GitHubPullRequestClient {
       headRef: data.head.ref,
       changedFilesCount: data.changed_files ?? 0,
       merged: data.merged ?? false,
-      isRepoPrivate: (data.base?.repo as { private?: boolean } | undefined)?.private,
-      repoVisibility: (data.base?.repo as { visibility?: string } | undefined)?.visibility,
+      isRepoPrivate: (data.base?.repo as { private?: boolean } | undefined)
+        ?.private,
+      repoVisibility: (data.base?.repo as { visibility?: string } | undefined)
+        ?.visibility,
     };
   }
 
