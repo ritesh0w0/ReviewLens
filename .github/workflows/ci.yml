@@ -56,6 +56,9 @@ jobs:
       - name: Generate Prisma Client
         run: npm run prisma:generate
 
+      - name: Build Core Package
+        run: npm run build --workspace=@reviewlens/core
+
       - name: Strict Typecheck
         run: npm run typecheck
 
