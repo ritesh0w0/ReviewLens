@@ -308,7 +308,8 @@ describe("Rule A — forbid_regex (M3 Step 2)", () => {
   });
 
   it("never echoes matched line text or secret values in candidate message", () => {
-    const secretLine = "const apiKey = 'custom_secret_key_999999999999999999999999';";
+    const secretLine =
+      "const apiKey = 'custom_secret_key_999999999999999999999999';";
     const context = createContext([
       {
         path: "src/keys.ts",
