@@ -138,6 +138,8 @@ export interface PreparedReviewInput {
     owner: string;
     name: string;
     id?: number;
+    isPrivate?: boolean;
+    visibility?: string;
   };
   pullRequest: {
     number: number;

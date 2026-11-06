@@ -291,6 +291,8 @@ export class PullRequestDiffPipeline {
       repository: {
         owner,
         name: repo,
+        isPrivate: postPrMeta.isRepoPrivate ?? prMeta.isRepoPrivate,
+        visibility: postPrMeta.repoVisibility ?? prMeta.repoVisibility,
       },
       pullRequest: {
         number: prNumber,

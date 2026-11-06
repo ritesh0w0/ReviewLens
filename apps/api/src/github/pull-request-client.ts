@@ -8,6 +8,8 @@ export interface GitHubPullRequestInfo {
   headRef?: string;
   changedFilesCount?: number;
   merged?: boolean;
+  isRepoPrivate?: boolean;
+  repoVisibility?: string;
 }
 
 export interface GitHubChangedFileItem {

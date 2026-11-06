@@ -79,7 +79,8 @@ export async function executeAIReview(
 
   // 2. Check Public Repository Gate
   const gateCheck = checkPublicRepoGate({
-    // If prepared repository provides visibility info, or check env
+    isPrivate: prepared.repository.isPrivate,
+    visibility: prepared.repository.visibility,
   });
 
   if (!gateCheck.eligible) {

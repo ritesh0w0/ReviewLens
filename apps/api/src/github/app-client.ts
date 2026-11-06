@@ -34,16 +34,11 @@ export class OctokitPullRequestClient implements GitHubPullRequestClient {
           ? [Number(this.config.repositoryGithubId)]
           : undefined;
 
-        // Exchange JWT for scoped installation access token
+        // Exchange JWT for scoped installation access token using granted permissions
         const installationAuth = await auth({
           type: "installation",
           installationId: Number(this.config.installationId),
           repositoryIds: repoIds,
-          permissions: {
-            pull_requests: "write",
-            metadata: "read",
-            contents: "read",
-          },
         });
 
         // Opaque token: do not inspect length or decode internals
@@ -98,6 +93,8 @@ export class OctokitPullRequestClient implements GitHubPullRequestClient {
       headRef: data.head.ref,
       changedFilesCount: data.changed_files ?? 0,
       merged: data.merged ?? false,
+      isRepoPrivate: (data.base?.repo as { private?: boolean } | undefined)?.private,
+      repoVisibility: (data.base?.repo as { visibility?: string } | undefined)?.visibility,
     };
   }
 
