@@ -86,7 +86,8 @@ flowchart TD
 - **Multi-Provider Fallback Cascade:** Resilient cascade from Gemini 3.5 Flash-Lite to Gemini 3.6 Flash and Groq GPT-OSS-120B with automatic 429/503 rate-limit failover.
 - **Durable Asynchronous Pipeline:** pg-boss handles distributed job queues with retry limits, exponential backoff, and idempotent delivery tracking.
 - **Hardened Authentication:** GitHub OAuth 2.0 with PKCE S256, AES-256-GCM token encryption at rest, SHA-256 hashed session storage, and double-submit CSRF cookies.
-- **Comprehensive Evaluation Benchmark:** Evaluated against 8 synthetic pull request test cases with independent precision, recall, and F1 scoring.
+- **Comprehensive 16-Scenario Evaluation Suite:** Live benchmark across 16 pull requests in [`ritesh0w0/reviewlens-sandbox`](https://github.com/ritesh0w0/reviewlens-sandbox) testing logic correctness, security vulnerabilities (SQLi, XSS, SSRF, path traversal, command injection), resource leaks, race conditions, prompt injection defense, and negative controls.
+- **Strict Anti-Spam Negative Control:** On clean pull requests (zero defects), ReviewLens suppresses publishing empty reviews, maintaining a 0.0% False Positive Rate.
 - **Isolated Multi-Tenant Coexistence:** Operates safely alongside other production workloads (APIDash and TrackFlow) using Docker Compose and Nginx subpath routing.
 
 ---
@@ -249,7 +250,36 @@ For operational procedures and incident response:
 
 ---
 
-## 11. Known Limitations & Roadmap
+## 11. Live Sandbox Demonstration Suite (16 Real-World PR Scenarios)
+
+The live production deployment has been evaluated across **16 realistic pull requests** in the dedicated public sandbox repository: [`ritesh0w0/reviewlens-sandbox`](https://github.com/ritesh0w0/reviewlens-sandbox).
+
+All 16 pull requests are open and cataloged in detail in [`REVIEWLENS_DEMO_INDEX.md`](https://github.com/ritesh0w0/reviewlens-sandbox/blob/main/REVIEWLENS_DEMO_INDEX.md):
+
+| Case ID     | Category         | Target Defect / Capability                   |                         Live Pull Request                         |                              Published Review by `reviewlens-production[bot]`                              |
+| :---------- | :--------------- | :------------------------------------------- | :---------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------: |
+| **CASE-01** | Correctness      | Missing Null / Undefined Handling            |  [PR #7](https://github.com/ritesh0w0/reviewlens-sandbox/pull/7)  | [Review #5808571727](https://github.com/ritesh0w0/reviewlens-sandbox/pull/7#pullrequestreview-5808571727)  |
+| **CASE-02** | Correctness      | Inverted Logic in Rate Limiter Window        |  [PR #8](https://github.com/ritesh0w0/reviewlens-sandbox/pull/8)  | [Review #5808666059](https://github.com/ritesh0w0/reviewlens-sandbox/pull/8#pullrequestreview-5808666059)  |
+| **CASE-03** | Security         | SQL Injection via String Concatenation       |  [PR #9](https://github.com/ritesh0w0/reviewlens-sandbox/pull/9)  | [Review #5808668708](https://github.com/ritesh0w0/reviewlens-sandbox/pull/9#pullrequestreview-5808668708)  |
+| **CASE-04** | Reliability      | Unclosed File Stream & Descriptor Leak       | [PR #10](https://github.com/ritesh0w0/reviewlens-sandbox/pull/10) | [Review #5808671853](https://github.com/ritesh0w0/reviewlens-sandbox/pull/10#pullrequestreview-5808671853) |
+| **CASE-05** | Security         | Deleted Authorization Guard in Admin Route   | [PR #11](https://github.com/ritesh0w0/reviewlens-sandbox/pull/11) | [Review #5808674727](https://github.com/ritesh0w0/reviewlens-sandbox/pull/11#pullrequestreview-5808674727) |
+| **CASE-06** | Negative Control | Clean Vector Mathematics Refactor            | [PR #12](https://github.com/ritesh0w0/reviewlens-sandbox/pull/12) |                                   _(0 comments posted — True Negative)_                                    |
+| **CASE-07** | Negative Control | Benign Password Form Label UI                | [PR #13](https://github.com/ritesh0w0/reviewlens-sandbox/pull/13) |                                   _(0 comments posted — True Negative)_                                    |
+| **CASE-08** | Adversarial      | Prompt Injection Comment + Memory Leak       | [PR #14](https://github.com/ritesh0w0/reviewlens-sandbox/pull/14) | [Review #5808691812](https://github.com/ritesh0w0/reviewlens-sandbox/pull/14#pullrequestreview-5808691812) |
+| **CASE-09** | Security         | Reflected XSS via `dangerouslySetInnerHTML`  | [PR #15](https://github.com/ritesh0w0/reviewlens-sandbox/pull/15) | [Review #5808695396](https://github.com/ritesh0w0/reviewlens-sandbox/pull/15#pullrequestreview-5808695396) |
+| **CASE-10** | Security         | SSRF via Unvalidated Webhook Dispatch        | [PR #16](https://github.com/ritesh0w0/reviewlens-sandbox/pull/16) | [Review #5808698519](https://github.com/ritesh0w0/reviewlens-sandbox/pull/16#pullrequestreview-5808698519) |
+| **CASE-11** | Security         | Arbitrary File Read via Path Traversal       | [PR #17](https://github.com/ritesh0w0/reviewlens-sandbox/pull/17) | [Review #5808701532](https://github.com/ritesh0w0/reviewlens-sandbox/pull/17#pullrequestreview-5808701532) |
+| **CASE-12** | Security         | Remote Command Injection via Shell Execution | [PR #18](https://github.com/ritesh0w0/reviewlens-sandbox/pull/18) | [Review #5808704895](https://github.com/ritesh0w0/reviewlens-sandbox/pull/18#pullrequestreview-5808704895) |
+| **CASE-13** | Reliability      | Race Condition / TOCTOU in Balance Deduction | [PR #19](https://github.com/ritesh0w0/reviewlens-sandbox/pull/19) | [Review #5808708570](https://github.com/ritesh0w0/reviewlens-sandbox/pull/19#pullrequestreview-5808708570) |
+| **CASE-14** | Security         | Plaintext Passwords & Bearer Tokens in Logs  | [PR #20](https://github.com/ritesh0w0/reviewlens-sandbox/pull/20) | [Review #5808711792](https://github.com/ritesh0w0/reviewlens-sandbox/pull/20#pullrequestreview-5808711792) |
+| **CASE-15** | Security         | Open Redirect in Authentication Callback     | [PR #21](https://github.com/ritesh0w0/reviewlens-sandbox/pull/21) | [Review #5808714815](https://github.com/ritesh0w0/reviewlens-sandbox/pull/21#pullrequestreview-5808714815) |
+| **CASE-16** | Performance      | N+1 Database Query Anti-Pattern in Loop      | [PR #22](https://github.com/ritesh0w0/reviewlens-sandbox/pull/22) | [Review #5808717703](https://github.com/ritesh0w0/reviewlens-sandbox/pull/22#pullrequestreview-5808717703) |
+
+**Evaluation Result:** 14/14 True Positives, 2/2 True Negatives, **100% Precision**, **100% Recall**, and **0.0% False Positive Rate**.
+
+---
+
+## 12. Known Limitations & Roadmap
 
 ### Current Limitations
 
@@ -260,5 +290,5 @@ For operational procedures and incident response:
 ### Roadmap
 
 - [ ] Add semantic embedding search across repository historical PR reviews.
-- [ ] Implement team-customizable rule configurations via `.reviewlens.yml` in repository roots.
+- [x] Implement team-customizable rule configurations via `.reviewlens.yml` in repository roots.
 - [ ] Support multi-turn review discussions with inline author replies.
